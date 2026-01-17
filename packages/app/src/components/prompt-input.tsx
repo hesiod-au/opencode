@@ -55,6 +55,7 @@ import { createOpencodeClient, type Message, type Part } from "@opencode-ai/sdk/
 import { Binary } from "@opencode-ai/util/binary"
 import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode } from "@opencode-ai/util/encode"
+import { useLoadedSnapshot } from "@/components/session"
 
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"]
 const ACCEPTED_FILE_TYPES = [...ACCEPTED_IMAGE_TYPES, "application/pdf"]
@@ -118,6 +119,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const providers = useProviders()
   const command = useCommand()
   const permission = usePermission()
+  const loadedSnapshotCtx = useLoadedSnapshot()
   let editorRef!: HTMLDivElement
   let fileInputRef!: HTMLInputElement
   let scrollRef!: HTMLDivElement
@@ -1282,24 +1284,73 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       )
     }
 
+    // Build messages override for snapshots/exclusions/edits
+    const liveMessages = sync.data.message[session.id] ?? []
+    const liveParts = sync.data.part
+    const messagesOverride = loadedSnapshotCtx.getMessagesForPrompt(liveMessages, liveParts)
+
+    // If we have a messages override, create a new session (fresh submission with custom context)
+    let targetSession = session
+    const isNewSessionFromOverride = !!messagesOverride
+    if (isNewSessionFromOverride) {
+      const newSession = await client.session.create().then((x) => x.data ?? undefined)
+      if (!newSession) {
+        showToast({
+          title: "Failed to create session",
+          description: "Could not create a new session for the snapshot",
+        })
+        return
+      }
+      targetSession = newSession
+      // Clear the snapshot and navigate to new session
+      // The server has stored the messages, so they'll appear via sync
+      loadedSnapshotCtx.clear()
+      navigate(`/${base64Encode(sessionDirectory)}/session/${newSession.id}`)
+    }
+
     clearInput()
-    addOptimisticMessage()
+    // Skip optimistic updates when creating a new session - real messages will appear via sync
+    if (!isNewSessionFromOverride) {
+      addOptimisticMessage()
+    }
+
+    // Debug: log messages override
+    if (messagesOverride) {
+      console.log("[prompt-input] Sending with messages override:", {
+        count: messagesOverride.length,
+        messages: messagesOverride.map((m) => ({
+          id: m.info.id,
+          role: m.info.role,
+          partsCount: m.parts.length,
+        })),
+      })
+    }
 
     client.session
       .prompt({
-        sessionID: session.id,
+        sessionID: targetSession.id,
         agent,
         model,
         messageID,
         parts: requestParts,
         variant,
+        messages: messagesOverride,
+      })
+      .then(() => {
+        // If we sent a messages override, refresh to get all stored messages from server
+        // (SSE events may have only partially arrived when sync first ran)
+        if (isNewSessionFromOverride) {
+          sync.session.refresh(targetSession.id)
+        }
       })
       .catch((err) => {
         showToast({
           title: "Failed to send prompt",
           description: errorMessage(err),
         })
-        removeOptimisticMessage()
+        if (!isNewSessionFromOverride) {
+          removeOptimisticMessage()
+        }
         restoreInput()
       })
   }

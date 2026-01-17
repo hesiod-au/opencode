@@ -539,6 +539,177 @@ export const SessionRoutes = lazy(() =>
         return c.json(true)
       },
     )
+    .post(
+      "/:sessionID/compact/preview",
+      describeRoute({
+        summary: "Preview compaction",
+        description: "Generate a preview of what the compaction summary would look like without applying it.",
+        operationId: "session.compactPreview",
+        responses: {
+          200: {
+            description: "Compaction preview",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    summary: z.string(),
+                    tokenEstimate: z.number(),
+                  }),
+                ),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: z.string().meta({ description: "Session ID" }),
+        }),
+      ),
+      validator(
+        "json",
+        z.object({
+          providerID: z.string().meta({ description: "Provider ID for the model" }),
+          modelID: z.string().meta({ description: "Model ID to use for generating the summary" }),
+          prompt: z.string().optional().meta({ description: "Custom compaction prompt" }),
+          partIds: z.array(z.string()).optional().meta({ description: "Part IDs for selective compaction" }),
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        const result = await SessionCompaction.preview({
+          sessionID,
+          providerID: body.providerID,
+          modelID: body.modelID,
+          prompt: body.prompt,
+          partIds: body.partIds,
+        })
+        return c.json(result)
+      },
+    )
+    .post(
+      "/:sessionID/compact/apply",
+      describeRoute({
+        summary: "Apply custom compaction",
+        description: "Apply a custom or edited summary as the compaction result.",
+        operationId: "session.compactApply",
+        responses: {
+          200: {
+            description: "Applied compaction",
+            content: {
+              "application/json": {
+                schema: resolver(MessageV2.Assistant),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: z.string().meta({ description: "Session ID" }),
+        }),
+      ),
+      validator(
+        "json",
+        z.object({
+          providerID: z.string().meta({ description: "Provider ID" }),
+          modelID: z.string().meta({ description: "Model ID" }),
+          summary: z.string().meta({ description: "The summary text to apply" }),
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        const result = await SessionCompaction.applyCustomSummary({
+          sessionID,
+          providerID: body.providerID,
+          modelID: body.modelID,
+          summary: body.summary,
+          auto: false,
+        })
+        return c.json(result)
+      },
+    )
+    .post(
+      "/:sessionID/compact/selective",
+      describeRoute({
+        summary: "Apply selective compaction",
+        description:
+          "Apply a summary to selected parts and mark them as excluded. Unlike regular compaction, this does not create a boundary - original messages stay visible but are excluded from LLM submissions.",
+        operationId: "session.compactSelective",
+        responses: {
+          200: {
+            description: "Selective compaction applied",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    assistantMsg: MessageV2.Assistant,
+                    markedCount: z.number(),
+                  }),
+                ),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: z.string().meta({ description: "Session ID" }),
+        }),
+      ),
+      validator(
+        "json",
+        z.object({
+          providerID: z.string().meta({ description: "Provider ID" }),
+          modelID: z.string().meta({ description: "Model ID" }),
+          summary: z.string().meta({ description: "The summary text to apply" }),
+          partIds: z.array(z.string()).meta({ description: "Part IDs to mark as excluded" }),
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        const result = await SessionCompaction.applySelectiveCompaction({
+          sessionID,
+          providerID: body.providerID,
+          modelID: body.modelID,
+          summary: body.summary,
+          partIds: body.partIds,
+        })
+        return c.json(result)
+      },
+    )
+    .get(
+      "/:sessionID/compact/templates",
+      describeRoute({
+        summary: "Get compaction templates",
+        description: "Get available compaction prompt templates.",
+        operationId: "session.compactTemplates",
+        responses: {
+          200: {
+            description: "Compaction templates",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.record(z.string(), z.string()),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json(SessionCompaction.TEMPLATES)
+      },
+    )
     .get(
       "/:sessionID/message",
       describeRoute({
@@ -726,6 +897,13 @@ export const SessionRoutes = lazy(() =>
         return stream(c, async (stream) => {
           const sessionID = c.req.valid("param").sessionID
           const body = c.req.valid("json")
+          // Debug: log body keys
+          log.info("route: validated body keys", {
+            sessionID,
+            keys: Object.keys(body),
+            hasMessages: "messages" in body,
+            messagesCount: body.messages?.length ?? 0,
+          })
           const msg = await SessionPrompt.prompt({ ...body, sessionID })
           stream.write(JSON.stringify(msg))
         })

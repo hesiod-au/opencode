@@ -4,7 +4,7 @@ import { useParams } from "@solidjs/router"
 import { useLayout } from "@/context/layout"
 import { useCommand } from "@/context/command"
 // import { useServer } from "@/context/server"
-// import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useSync } from "@/context/sync"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { getFilename } from "@opencode-ai/util/path"
@@ -17,6 +17,7 @@ import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { Popover } from "@opencode-ai/ui/popover"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { Keybind } from "@opencode-ai/ui/keybind"
+import { DialogSnippetsPicker } from "./dialog-snippets-picker"
 
 export function SessionHeader() {
   const globalSDK = useGlobalSDK()
@@ -24,7 +25,7 @@ export function SessionHeader() {
   const params = useParams()
   const command = useCommand()
   // const server = useServer()
-  // const dialog = useDialog()
+  const dialog = useDialog()
   const sync = useSync()
 
   const projectDirectory = createMemo(() => base64Decode(params.dir ?? ""))
@@ -44,6 +45,19 @@ export function SessionHeader() {
   const shareEnabled = createMemo(() => sync.data.config.share !== "disabled")
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
   const view = createMemo(() => layout.view(sessionKey()))
+  const tabs = createMemo(() => layout.tabs(sessionKey()))
+
+  const openContext = () => {
+    if (!params.id) return
+    view().reviewPanel.open()
+    tabs().open("context")
+    tabs().setActive("context")
+  }
+
+  const openSnippets = () => {
+    if (!params.id) return
+    dialog.show(() => <DialogSnippetsPicker sessionID={params.id!} />)
+  }
 
   const centerMount = createMemo(() => document.getElementById("opencode-titlebar-center"))
   const rightMount = createMemo(() => document.getElementById("opencode-titlebar-right"))
@@ -97,6 +111,18 @@ export function SessionHeader() {
               {/*   <SessionMcpIndicator /> */}
               {/* </div> */}
               <div class="flex items-center gap-1">
+                <Show when={params.id}>
+                  <Tooltip value="View context" placement="bottom" class="hidden md:block shrink-0">
+                    <Button variant="ghost" class="size-6 p-0" onClick={openContext}>
+                      <Icon name="brain" size="small" class="icon-base" />
+                    </Button>
+                  </Tooltip>
+                  <Tooltip value="Snippets" placement="bottom" class="hidden md:block shrink-0">
+                    <Button variant="ghost" class="size-6 p-0" onClick={openSnippets}>
+                      <Icon name="code" size="small" class="icon-base" />
+                    </Button>
+                  </Tooltip>
+                </Show>
                 <Show when={currentSession()?.summary?.files}>
                   <TooltipKeybind
                     class="hidden md:block shrink-0"

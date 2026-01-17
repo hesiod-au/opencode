@@ -1,16 +1,50 @@
-import { createMemo, createEffect, on, onCleanup, For, Show } from "solid-js"
-import type { JSX } from "solid-js"
+import { createMemo, createEffect, createSignal, on, onCleanup, For, Match, Show, Switch } from "solid-js"
+import type { JSX, Accessor, Setter } from "solid-js"
 import { useParams } from "@solidjs/router"
 import { DateTime } from "luxon"
 import { useSync } from "@/context/sync"
 import { useLayout } from "@/context/layout"
+import { useSDK } from "@/context/sdk"
+import { useLocal } from "@/context/local"
 import { checksum } from "@opencode-ai/util/encode"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Accordion } from "@opencode-ai/ui/accordion"
 import { StickyAccordionHeader } from "@opencode-ai/ui/sticky-accordion-header"
 import { Code } from "@opencode-ai/ui/code"
 import { Markdown } from "@opencode-ai/ui/markdown"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import type { AssistantMessage, Message, Part, UserMessage } from "@opencode-ai/sdk/v2/client"
+import { ContextMessageList } from "./context-message-list"
+import { ContextGroupedView } from "./context-grouped-view"
+import { PendingDeletionsProvider, usePendingDeletions } from "./use-pending-deletions"
+import { useContextSnapshots, type ContextSnapshot } from "./use-context-snapshots"
+import { useLoadedSnapshot } from "./use-loaded-snapshot"
+import { DialogSaveSnapshot } from "./dialog-save-snapshot"
+import { DialogLoadSnapshot } from "./dialog-load-snapshot"
+import { DialogDeleteAllContext } from "./dialog-delete-all-context"
+import { DialogSnapshotsList } from "./dialog-snapshots-list"
+import { DialogCustomCompaction } from "./dialog-custom-compaction"
+
+type ViewMode = "chronological" | "grouped" | "raw"
+
+export interface SelectionState {
+  excluded: Accessor<Set<string>>
+  setExcluded: Setter<Set<string>>
+  hidden: Accessor<Set<string>>
+  setHidden: Setter<Set<string>>
+  showHidden: Accessor<boolean>
+  setShowHidden: Setter<boolean>
+  toggleExcluded: (partId: string) => void
+  toggleHidden: (partId: string) => void
+  excludeAll: () => void
+  includeAll: () => void
+  hideAll: () => void
+  showAll: () => void
+  // Compaction selection - separate from exclusion
+  compactSelection: Accessor<Set<string>>
+  toggleCompactSelection: (partId: string) => void
+  clearCompactSelection: () => void
+}
 
 interface SessionContextTabProps {
   messages: () => Message[]
@@ -22,9 +56,128 @@ interface SessionContextTabProps {
 export function SessionContextTab(props: SessionContextTabProps) {
   const params = useParams()
   const sync = useSync()
+  const sdk = useSDK()
+  const dialog = useDialog()
+  const snapshots = useContextSnapshots()
+  const loadedSnapshotCtx = useLoadedSnapshot()
+  const [viewMode, setViewMode] = createSignal<ViewMode>("chronological")
+
+  // Get messages - use snapshot data if loaded, otherwise use live data
+  const getMessages = (): Message[] => {
+    const snapshot = loadedSnapshotCtx.snapshot()
+    if (snapshot) {
+      return snapshot.messages
+    }
+    return props.messages()
+  }
+
+  // Get parts - use snapshot data if loaded, otherwise use live data
+  const getParts = (messageId: string): Part[] => {
+    const snapshot = loadedSnapshotCtx.snapshot()
+    if (snapshot) {
+      return snapshot.parts[messageId] ?? []
+    }
+    return (sync.data.part[messageId] ?? []) as Part[]
+  }
+
+  const clearLoadedSnapshot = () => {
+    loadedSnapshotCtx.clear()
+    // Also clear UI state when clearing snapshot
+    setHidden(new Set<string>())
+  }
+
+  // Selection/exclusion state management
+  // Exclusions use shared context (affects prompt submission)
+  const excluded = loadedSnapshotCtx.excluded
+  const setExcluded = loadedSnapshotCtx.setExcluded
+  // Hidden is local UI state only
+  const [hidden, setHidden] = createSignal<Set<string>>(new Set())
+  const [showHidden, setShowHidden] = createSignal(false)
+  // Compaction selection - parts selected to be compacted (local UI state)
+  const [compactSelection, setCompactSelection] = createSignal<Set<string>>(new Set())
+
+  const toggleExcluded = (partId: string) => {
+    const prev = excluded()
+    const next = new Set(prev)
+    if (next.has(partId)) next.delete(partId)
+    else next.add(partId)
+    setExcluded(next)
+  }
+
+  const toggleHidden = (partId: string) => {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(partId)) next.delete(partId)
+      else next.add(partId)
+      return next
+    })
+  }
+
+  const toggleCompactSelection = (partId: string) => {
+    setCompactSelection((prev) => {
+      const next = new Set(prev)
+      if (next.has(partId)) next.delete(partId)
+      else next.add(partId)
+      return next
+    })
+  }
+
+  const clearCompactSelection = () => setCompactSelection(new Set<string>())
+
+  const getAllPartIds = (): string[] => {
+    const ids: string[] = []
+    for (const msg of getMessages()) {
+      const parts = getParts(msg.id)
+      for (const part of parts) {
+        ids.push(part.id)
+      }
+    }
+    return ids
+  }
+
+  const excludeAll = () => setExcluded(new Set<string>(getAllPartIds()))
+  const includeAll = () => setExcluded(new Set<string>())
+  const hideAll = () => setHidden(new Set<string>(getAllPartIds()))
+  const showAll = () => setHidden(new Set<string>())
+
+  const selection: SelectionState = {
+    excluded,
+    setExcluded,
+    hidden,
+    setHidden,
+    showHidden,
+    setShowHidden,
+    toggleExcluded,
+    toggleHidden,
+    excludeAll,
+    includeAll,
+    hideAll,
+    showAll,
+    compactSelection,
+    toggleCompactSelection,
+    clearCompactSelection,
+  }
+
+  // Context State Management handlers
+  const sessionID = () => params.id ?? ""
+  const sessionName = () => props.info()?.title ?? sessionID() ?? "Session"
+
+  const getPartsRecord = (): Record<string, Part[]> => {
+    const result: Record<string, Part[]> = {}
+    for (const msg of getMessages()) {
+      result[msg.id] = getParts(msg.id)
+    }
+    return result
+  }
+
+  const hasUnsavedChanges = createMemo(() => {
+    return excluded().size > 0 || hidden().size > 0 || loadedSnapshotCtx.isLoaded()
+  })
+
+  const snapshotCount = createMemo(() => snapshots.snapshotsForSession().length)
 
   const ctx = createMemo(() => {
-    const last = props.messages().findLast((x) => {
+    const last = getMessages().findLast((x) => {
       if (x.role !== "assistant") return false
       const total = x.tokens.input + x.tokens.output + x.tokens.reasoning + x.tokens.cache.read + x.tokens.cache.write
       return total > 0
@@ -59,7 +212,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
   })
 
   const cost = createMemo(() => {
-    const total = props.messages().reduce((sum, x) => sum + (x.role === "assistant" ? x.cost : 0), 0)
+    const total = getMessages().reduce((sum, x) => sum + (x.role === "assistant" ? x.cost : 0), 0)
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
@@ -67,7 +220,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
   })
 
   const counts = createMemo(() => {
-    const all = props.messages()
+    const all = getMessages()
     const user = all.reduce((count, x) => count + (x.role === "user" ? 1 : 0), 0)
     const assistant = all.reduce((count, x) => count + (x.role === "assistant" ? 1 : 0), 0)
     return {
@@ -118,7 +271,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
 
   const breakdown = createMemo(
     on(
-      () => [ctx()?.message.id, ctx()?.input, props.messages().length, systemPrompt()],
+      () => [ctx()?.message.id, ctx()?.input, getMessages().length, systemPrompt()],
       () => {
         const c = ctx()
         if (!c) return []
@@ -132,8 +285,8 @@ export function SessionContextTab(props: SessionContextTabProps) {
           tool: 0,
         }
 
-        for (const msg of props.messages()) {
-          const parts = (sync.data.part[msg.id] ?? []) as Part[]
+        for (const msg of getMessages()) {
+          const parts = getParts(msg.id)
 
           if (msg.role === "user") {
             for (const part of parts) {
@@ -301,6 +454,219 @@ export function SessionContextTab(props: SessionContextTabProps) {
     )
   }
 
+  // Compaction Controls component
+  function CompactionControls(compactionProps: { sessionID: string; selectedPartIds: string[] }) {
+    const local = useLocal()
+
+    const handleManualCompaction = () => {
+      const model = local.model.current()
+      if (!model) {
+        // Could show a toast here, but for now just return
+        return
+      }
+      dialog.show(() => (
+        <DialogCustomCompaction
+          sessionID={compactionProps.sessionID}
+          model={{ providerID: model.provider.id, modelID: model.id }}
+          onCompacted={() => {
+            // Refresh messages after compaction
+            sync.session.refresh(compactionProps.sessionID)
+          }}
+        />
+      ))
+    }
+
+    const handleSelectiveCompaction = () => {
+      const model = local.model.current()
+      if (!model) return
+
+      dialog.show(() => (
+        <DialogCustomCompaction
+          sessionID={compactionProps.sessionID}
+          model={{ providerID: model.provider.id, modelID: model.id }}
+          selectedPartIds={compactionProps.selectedPartIds}
+          onCompacted={() => {
+            // Refresh messages after compaction
+            sync.session.refresh(compactionProps.sessionID)
+            // Clear compaction selection after selective compaction
+            clearCompactSelection()
+          }}
+        />
+      ))
+    }
+
+    const hasModel = createMemo(() => local.model.current() !== undefined)
+    const hasSelection = createMemo(() => compactionProps.selectedPartIds.length > 0)
+
+    return (
+      <div data-component="compaction-controls">
+        <Show when={hasSelection()}>
+          <button
+            data-slot="compaction-btn"
+            data-variant="primary"
+            onClick={handleSelectiveCompaction}
+            disabled={!hasModel()}
+            title={hasModel() ? `Compact ${compactionProps.selectedPartIds.length} selected parts` : "Connect a provider first"}
+          >
+            <Icon name="collapse" size="small" />
+            Compact Selected ({compactionProps.selectedPartIds.length})
+          </button>
+          <button
+            data-slot="compaction-btn"
+            data-variant="secondary"
+            onClick={clearCompactSelection}
+            title="Clear selection"
+          >
+            <Icon name="close" size="small" />
+            Clear
+          </button>
+        </Show>
+        <button
+          data-slot="compaction-btn"
+          onClick={handleManualCompaction}
+          disabled={!hasModel()}
+          title={hasModel() ? undefined : "Connect a provider first"}
+        >
+          <Icon name="collapse" size="small" />
+          Compact All
+        </button>
+        <div data-slot="compaction-hint">
+          {hasSelection()
+            ? "Summarize selected parts and mark them as excluded"
+            : "Click the compress icon on parts to select them for compaction"}
+        </div>
+      </div>
+    )
+  }
+
+  // Inner component that has access to PendingDeletionsProvider
+  function ContextStateControls() {
+    const pendingDeletions = usePendingDeletions()
+
+    const handleSaveSnapshot = () => {
+      if (!sessionID()) return
+
+      dialog.show(() => (
+        <DialogSaveSnapshot
+          sessionID={sessionID()}
+          sessionName={sessionName()}
+          messages={props.messages()}
+          parts={getPartsRecord()}
+          exclusions={Array.from(excluded())}
+          hidden={Array.from(hidden())}
+          edits={loadedSnapshotCtx.getEditsArray()}
+        />
+      ))
+    }
+
+    const loadSnapshot = (snapshot: ContextSnapshot) => {
+      // Cancel any pending deletions first
+      pendingDeletions.cancelAllDeletions()
+      // Load the full snapshot data (messages, parts, and UI state)
+      // Snapshots are independent - submitting will create a new session
+      loadedSnapshotCtx.setSnapshot(snapshot)
+      setExcluded(new Set(snapshot.exclusions))
+      setHidden(new Set(snapshot.hidden))
+      // Load edits from snapshot
+      for (const edit of snapshot.edits ?? []) {
+        loadedSnapshotCtx.setEdit(edit)
+      }
+    }
+
+    const handleLoadSnapshot = () => {
+      if (!sessionID()) return
+
+      dialog.show(() => (
+        <DialogLoadSnapshot
+          sessionID={sessionID()}
+          hasUnsavedChanges={hasUnsavedChanges()}
+          onLoad={loadSnapshot}
+          onSaveFirst={handleSaveSnapshot}
+        />
+      ))
+    }
+
+    const handleManageSnapshots = () => {
+      dialog.show(() => (
+        <DialogSnapshotsList
+          sessionID={sessionID()}
+          onLoad={loadSnapshot}
+        />
+      ))
+    }
+
+    const handleDeleteAllContext = () => {
+      if (!sessionID()) return
+
+      dialog.show(() => (
+        <DialogDeleteAllContext
+          sessionName={sessionName()}
+          messageCount={props.messages().length}
+          onConfirm={async () => {
+            // Cancel any pending deletions
+            pendingDeletions.cancelAllDeletions()
+            // Delete all parts in all messages
+            const messages = props.messages()
+            for (const msg of messages) {
+              const msgParts = getParts(msg.id)
+              for (const part of msgParts) {
+                try {
+                  await sdk.client.part.delete({
+                    sessionID: sessionID(),
+                    messageID: msg.id,
+                    partID: part.id,
+                  })
+                } catch {
+                  // Continue deleting other parts even if one fails
+                }
+              }
+            }
+            // Clear UI state
+            setExcluded(new Set<string>())
+            setHidden(new Set<string>())
+          }}
+          onSaveSnapshot={handleSaveSnapshot}
+        />
+      ))
+    }
+
+    return (
+      <div data-component="context-state-controls">
+        <Show when={loadedSnapshotCtx.isLoaded()}>
+          <div data-slot="snapshot-loaded-indicator">
+            <Icon name="archive" size="small" />
+            <span>Viewing: {loadedSnapshotCtx.snapshotName()}</span>
+            <button data-slot="snapshot-clear-btn" onClick={clearLoadedSnapshot} title="Return to live data">
+              <Icon name="close" size="small" />
+            </button>
+          </div>
+        </Show>
+        <button data-slot="state-control-btn" data-variant="save" onClick={handleSaveSnapshot}>
+          <Icon name="archive" size="small" />
+          Save
+        </button>
+        <button data-slot="state-control-btn" data-variant="load" onClick={handleLoadSnapshot}>
+          <Icon name="enter" size="small" />
+          Load
+        </button>
+        <button data-slot="state-control-btn" data-variant="manage" onClick={handleManageSnapshots}>
+          <Icon name="folder" size="small" />
+          Manage
+        </button>
+        <Show when={!loadedSnapshotCtx.isLoaded()}>
+          <div data-slot="state-control-divider" />
+          <button data-slot="state-control-btn" data-variant="delete" onClick={handleDeleteAllContext}>
+            <Icon name="circle-x" size="small" />
+            Clear All
+          </button>
+        </Show>
+        <Show when={snapshotCount() > 0 && !loadedSnapshotCtx.isLoaded()}>
+          <span data-slot="state-control-count">{snapshotCount()} snapshot{snapshotCount() !== 1 ? "s" : ""}</span>
+        </Show>
+      </div>
+    )
+  }
+
   let scroll: HTMLDivElement | undefined
   let frame: number | undefined
   let pending: { x: number; y: number } | undefined
@@ -342,7 +708,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
 
   createEffect(
     on(
-      () => props.messages().length,
+      () => getMessages().length,
       () => {
         requestAnimationFrame(restoreScroll)
       },
@@ -364,7 +730,8 @@ export function SessionContextTab(props: SessionContextTabProps) {
       }}
       onScroll={handleScroll}
     >
-      <div class="px-6 pt-4 flex flex-col gap-10">
+      <PendingDeletionsProvider>
+        <div class="px-6 pt-4 flex flex-col gap-10">
         <div class="grid grid-cols-1 @[32rem]:grid-cols-2 gap-4">
           <For each={stats()}>{(stat) => <Stat label={stat.label} value={stat.value} />}</For>
         </div>
@@ -413,13 +780,113 @@ export function SessionContextTab(props: SessionContextTabProps) {
           )}
         </Show>
 
-        <div class="flex flex-col gap-2">
-          <div class="text-12-regular text-text-weak">Raw messages</div>
-          <Accordion multiple>
-            <For each={props.messages()}>{(message) => <RawMessage message={message} />}</For>
-          </Accordion>
+        {/* Context State Management */}
+        <Show when={sessionID()}>
+          <div class="flex flex-col gap-2">
+            <div class="text-12-regular text-text-weak">Context State</div>
+            <ContextStateControls />
+          </div>
+        </Show>
+
+        {/* Compaction Controls */}
+        <Show when={sessionID() && !loadedSnapshotCtx.isLoaded()}>
+          <div class="flex flex-col gap-2">
+            <div class="text-12-regular text-text-weak">Compaction</div>
+            <CompactionControls sessionID={sessionID()!} selectedPartIds={Array.from(compactSelection())} />
+          </div>
+        </Show>
+
+        <div class="flex flex-col gap-3">
+          <div class="flex items-center justify-between">
+            <div class="text-12-regular text-text-weak">Messages</div>
+            <div data-component="context-view-toggle">
+              <button
+                data-slot="toggle-option"
+                data-active={viewMode() === "chronological"}
+                onClick={() => setViewMode("chronological")}
+              >
+                Timeline
+              </button>
+              <button
+                data-slot="toggle-option"
+                data-active={viewMode() === "grouped"}
+                onClick={() => setViewMode("grouped")}
+              >
+                Grouped
+              </button>
+              <button
+                data-slot="toggle-option"
+                data-active={viewMode() === "raw"}
+                onClick={() => setViewMode("raw")}
+              >
+                Raw
+              </button>
+            </div>
+          </div>
+
+          {/* Selection/Exclusion Controls */}
+          <div data-component="context-selection-controls">
+            <div data-slot="selection-summary">
+              <Show when={excluded().size > 0}>
+                <span data-slot="selection-count">{excluded().size} excluded</span>
+              </Show>
+              <Show when={hidden().size > 0}>
+                <span data-slot="selection-count">{hidden().size} hidden</span>
+              </Show>
+              <Show when={excluded().size === 0 && hidden().size === 0}>
+                <span data-slot="selection-hint">Click checkboxes to exclude items from context</span>
+              </Show>
+            </div>
+            <div data-slot="selection-actions">
+              <Show when={excluded().size > 0}>
+                <button data-slot="selection-action" onClick={includeAll}>
+                  <Icon name="check" size="small" />
+                  Include All
+                </button>
+              </Show>
+              <Show when={hidden().size > 0}>
+                <button data-slot="selection-action" onClick={showAll}>
+                  <Icon name="eye" size="small" />
+                  Show All
+                </button>
+              </Show>
+              <button
+                data-slot="selection-action"
+                data-active={showHidden()}
+                onClick={() => setShowHidden(!showHidden())}
+              >
+                <Icon name="eye" size="small" />
+                {showHidden() ? "Hide Hidden" : "Show Hidden"}
+              </button>
+            </div>
+          </div>
+
+          <Switch>
+            <Match when={viewMode() === "chronological"}>
+              <ContextMessageList
+                messages={getMessages}
+                getParts={getParts}
+                selection={selection}
+                onPartUpdated={() => sync.session.refresh(sessionID()!)}
+              />
+            </Match>
+            <Match when={viewMode() === "grouped"}>
+              <ContextGroupedView
+                messages={getMessages}
+                getParts={getParts}
+                selection={selection}
+                onPartUpdated={() => sync.session.refresh(sessionID()!)}
+              />
+            </Match>
+            <Match when={viewMode() === "raw"}>
+              <Accordion multiple>
+                <For each={getMessages()}>{(message) => <RawMessage message={message} />}</For>
+              </Accordion>
+            </Match>
+          </Switch>
         </div>
-      </div>
+        </div>
+      </PendingDeletionsProvider>
     </div>
   )
 }

@@ -100,6 +100,10 @@ export namespace SessionPrompt {
       ),
     system: z.string().optional(),
     variant: z.string().optional(),
+    // Optional: Override the message history entirely. When provided, this array
+    // is used instead of fetching messages from storage. Enables client-controlled
+    // context for snapshots, exclusions, and edited content.
+    messages: MessageV2.WithParts.array().optional(),
     parts: z.array(
       z.discriminatedUnion("type", [
         MessageV2.TextPart.omit({
@@ -148,6 +152,15 @@ export namespace SessionPrompt {
   export type PromptInput = z.infer<typeof PromptInput>
 
   export const prompt = fn(PromptInput, async (input) => {
+    // Debug: log if messages override is received
+    if (input.messages) {
+      log.info("received messages override from client", {
+        sessionID: input.sessionID,
+        count: input.messages.length,
+        messageIds: input.messages.map((m) => m.info.id),
+      })
+    }
+
     const session = await Session.get(input.sessionID)
     await SessionRevert.cleanup(session)
 
@@ -173,6 +186,45 @@ export namespace SessionPrompt {
 
     if (input.noReply === true) {
       return message
+    }
+
+    // If client provided messages override, store them in this session.
+    // This allows "forking" from a snapshot - the new session gets the full history.
+    if (input.messages && input.messages.length > 0) {
+      log.info("SNAPSHOT: storing messages override in session", {
+        sessionID: input.sessionID,
+        count: input.messages.length,
+      })
+
+      let storedCount = 0
+      let partCount = 0
+      for (const msg of input.messages) {
+        // Update message's sessionID to the new session
+        const storedMessage: MessageV2.Info = {
+          ...msg.info,
+          sessionID: input.sessionID,
+        }
+        log.info("SNAPSHOT: storing message", {
+          oldSessionID: msg.info.sessionID,
+          newSessionID: input.sessionID,
+          messageID: msg.info.id,
+          role: msg.info.role,
+          partsCount: msg.parts.length,
+        })
+        await Session.updateMessage(storedMessage)
+        storedCount++
+
+        // Store all parts with updated sessionID
+        for (const part of msg.parts) {
+          const storedPart: MessageV2.Part = {
+            ...part,
+            sessionID: input.sessionID,
+          }
+          await Session.updatePart(storedPart)
+          partCount++
+        }
+      }
+      log.info("SNAPSHOT: finished storing", { storedCount, partCount })
     }
 
     return loop(input.sessionID)
@@ -254,9 +306,10 @@ export namespace SessionPrompt {
     return
   }
 
-  export const loop = fn(Identifier.schema("session"), async (sessionID) => {
+  export async function loop(sessionID: string): Promise<MessageV2.WithParts> {
     const abort = start(sessionID)
     if (!abort) {
+      log.info("loop: session already running, queuing callback", { sessionID })
       return new Promise<MessageV2.WithParts>((resolve, reject) => {
         const callbacks = state()[sessionID].callbacks
         callbacks.push({ resolve, reject })
@@ -271,7 +324,10 @@ export namespace SessionPrompt {
       SessionStatus.set(sessionID, { type: "busy" })
       log.info("loop", { step, sessionID })
       if (abort.aborted) break
+
+      // Fetch messages from storage
       let msgs = await MessageV2.filterCompacted(MessageV2.stream(sessionID))
+      log.info("loop step", { step, sessionID, messageCount: msgs.length })
 
       let lastUser: MessageV2.User | undefined
       let lastAssistant: MessageV2.Assistant | undefined
@@ -631,7 +687,7 @@ export namespace SessionPrompt {
       return item
     }
     throw new Error("Impossible")
-  })
+  }
 
   async function lastModel(sessionID: string) {
     for await (const item of MessageV2.stream(sessionID)) {

@@ -11,8 +11,11 @@ import { ProviderTransform } from "@/provider/transform"
 import { STATUS_CODES } from "http"
 import { iife } from "@/util/iife"
 import { type SystemError } from "bun"
+import { Log } from "../util/log"
 
 export namespace MessageV2 {
+  const log = Log.create({ service: "message-v2" })
+
   export const OutputLengthError = NamedError.create("MessageOutputLengthError", z.object({}))
   export const AbortedError = NamedError.create("MessageAbortedError", z.object({ message: z.string() }))
   export const AuthError = NamedError.create(
@@ -39,6 +42,8 @@ export namespace MessageV2 {
     id: z.string(),
     sessionID: z.string(),
     messageID: z.string(),
+    // When true, this part is excluded from LLM submissions (e.g., after compaction)
+    excluded: z.boolean().optional(),
   })
 
   export const SnapshotPart = PartBase.extend({
@@ -446,6 +451,9 @@ export namespace MessageV2 {
         }
         result.push(userMessage)
         for (const part of msg.parts) {
+          // Skip excluded parts
+          if (part.excluded) continue
+
           if (part.type === "text" && !part.ignored)
             userMessage.parts.push({
               type: "text",
@@ -491,6 +499,9 @@ export namespace MessageV2 {
           parts: [],
         }
         for (const part of msg.parts) {
+          // Skip excluded parts
+          if (part.excluded) continue
+
           if (part.type === "text")
             assistantMessage.parts.push({
               type: "text",
@@ -604,16 +615,46 @@ export namespace MessageV2 {
   export async function filterCompacted(stream: AsyncIterable<MessageV2.WithParts>) {
     const result = [] as MessageV2.WithParts[]
     const completed = new Set<string>()
+    let foundCompactionBreak = false
+
     for await (const msg of stream) {
       result.push(msg)
-      if (
+
+      // Check for compaction user message
+      const isCompactionUserMsg =
         msg.info.role === "user" &&
         completed.has(msg.info.id) &&
         msg.parts.some((part) => part.type === "compaction")
-      )
+
+      if (isCompactionUserMsg) {
+        log.info("filterCompacted: found compaction break point", {
+          msgID: msg.info.id,
+          hasCompactionPart: true,
+          isInCompleted: true,
+        })
+        foundCompactionBreak = true
         break
-      if (msg.info.role === "assistant" && msg.info.summary && msg.info.finish) completed.add(msg.info.parentID)
+      }
+
+      // Check for summary assistant message
+      if (msg.info.role === "assistant" && msg.info.summary && msg.info.finish) {
+        const assistantInfo = msg.info as MessageV2.Assistant
+        log.info("filterCompacted: found summary assistant message", {
+          msgID: msg.info.id,
+          parentID: assistantInfo.parentID,
+          summary: true,
+          finish: assistantInfo.finish,
+        })
+        completed.add(assistantInfo.parentID)
+      }
     }
+
+    log.info("filterCompacted: completed", {
+      totalMessages: result.length,
+      foundCompactionBreak,
+      completedSet: Array.from(completed),
+    })
+
     result.reverse()
     return result
   }

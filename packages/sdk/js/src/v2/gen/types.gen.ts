@@ -199,6 +199,7 @@ export type TextPart = {
   id: string
   sessionID: string
   messageID: string
+  excluded?: boolean
   type: "text"
   text: string
   synthetic?: boolean
@@ -216,6 +217,7 @@ export type ReasoningPart = {
   id: string
   sessionID: string
   messageID: string
+  excluded?: boolean
   type: "reasoning"
   text: string
   metadata?: {
@@ -272,6 +274,7 @@ export type FilePart = {
   id: string
   sessionID: string
   messageID: string
+  excluded?: boolean
   type: "file"
   mime: string
   filename?: string
@@ -340,6 +343,7 @@ export type ToolPart = {
   id: string
   sessionID: string
   messageID: string
+  excluded?: boolean
   type: "tool"
   callID: string
   tool: string
@@ -353,6 +357,7 @@ export type StepStartPart = {
   id: string
   sessionID: string
   messageID: string
+  excluded?: boolean
   type: "step-start"
   snapshot?: string
 }
@@ -361,6 +366,7 @@ export type StepFinishPart = {
   id: string
   sessionID: string
   messageID: string
+  excluded?: boolean
   type: "step-finish"
   reason: string
   snapshot?: string
@@ -380,6 +386,7 @@ export type SnapshotPart = {
   id: string
   sessionID: string
   messageID: string
+  excluded?: boolean
   type: "snapshot"
   snapshot: string
 }
@@ -388,6 +395,7 @@ export type PatchPart = {
   id: string
   sessionID: string
   messageID: string
+  excluded?: boolean
   type: "patch"
   hash: string
   files: Array<string>
@@ -397,6 +405,7 @@ export type AgentPart = {
   id: string
   sessionID: string
   messageID: string
+  excluded?: boolean
   type: "agent"
   name: string
   source?: {
@@ -410,6 +419,7 @@ export type RetryPart = {
   id: string
   sessionID: string
   messageID: string
+  excluded?: boolean
   type: "retry"
   attempt: number
   error: ApiError
@@ -422,6 +432,7 @@ export type CompactionPart = {
   id: string
   sessionID: string
   messageID: string
+  excluded?: boolean
   type: "compaction"
   auto: boolean
 }
@@ -432,6 +443,7 @@ export type Part =
       id: string
       sessionID: string
       messageID: string
+      excluded?: boolean
       type: "subtask"
       prompt: string
       description: string
@@ -1912,6 +1924,7 @@ export type McpResource = {
 
 export type TextPartInput = {
   id?: string
+  excluded?: boolean
   type: "text"
   text: string
   synthetic?: boolean
@@ -1927,6 +1940,7 @@ export type TextPartInput = {
 
 export type FilePartInput = {
   id?: string
+  excluded?: boolean
   type: "file"
   mime: string
   filename?: string
@@ -1936,6 +1950,7 @@ export type FilePartInput = {
 
 export type AgentPartInput = {
   id?: string
+  excluded?: boolean
   type: "agent"
   name: string
   source?: {
@@ -1947,6 +1962,7 @@ export type AgentPartInput = {
 
 export type SubtaskPartInput = {
   id?: string
+  excluded?: boolean
   type: "subtask"
   prompt: string
   description: string
@@ -3106,6 +3122,189 @@ export type SessionSummarizeResponses = {
 
 export type SessionSummarizeResponse = SessionSummarizeResponses[keyof SessionSummarizeResponses]
 
+export type SessionCompactPreviewData = {
+  body?: {
+    /**
+     * Provider ID for the model
+     */
+    providerID: string
+    /**
+     * Model ID to use for generating the summary
+     */
+    modelID: string
+    /**
+     * Custom compaction prompt
+     */
+    prompt?: string
+    /**
+     * Part IDs for selective compaction
+     */
+    partIds?: Array<string>
+  }
+  path: {
+    /**
+     * Session ID
+     */
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/session/{sessionID}/compact/preview"
+}
+
+export type SessionCompactPreviewErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionCompactPreviewError = SessionCompactPreviewErrors[keyof SessionCompactPreviewErrors]
+
+export type SessionCompactPreviewResponses = {
+  /**
+   * Compaction preview
+   */
+  200: {
+    summary: string
+    tokenEstimate: number
+  }
+}
+
+export type SessionCompactPreviewResponse = SessionCompactPreviewResponses[keyof SessionCompactPreviewResponses]
+
+export type SessionCompactApplyData = {
+  body?: {
+    /**
+     * Provider ID
+     */
+    providerID: string
+    /**
+     * Model ID
+     */
+    modelID: string
+    /**
+     * The summary text to apply
+     */
+    summary: string
+  }
+  path: {
+    /**
+     * Session ID
+     */
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/session/{sessionID}/compact/apply"
+}
+
+export type SessionCompactApplyErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionCompactApplyError = SessionCompactApplyErrors[keyof SessionCompactApplyErrors]
+
+export type SessionCompactApplyResponses = {
+  /**
+   * Applied compaction
+   */
+  200: AssistantMessage
+}
+
+export type SessionCompactApplyResponse = SessionCompactApplyResponses[keyof SessionCompactApplyResponses]
+
+export type SessionCompactSelectiveData = {
+  body?: {
+    /**
+     * Provider ID
+     */
+    providerID: string
+    /**
+     * Model ID
+     */
+    modelID: string
+    /**
+     * The summary text to apply
+     */
+    summary: string
+    /**
+     * Part IDs to mark as excluded
+     */
+    partIds: Array<string>
+  }
+  path: {
+    /**
+     * Session ID
+     */
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/session/{sessionID}/compact/selective"
+}
+
+export type SessionCompactSelectiveErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionCompactSelectiveError = SessionCompactSelectiveErrors[keyof SessionCompactSelectiveErrors]
+
+export type SessionCompactSelectiveResponses = {
+  /**
+   * Selective compaction applied
+   */
+  200: {
+    assistantMsg: AssistantMessage
+    markedCount: number
+  }
+}
+
+export type SessionCompactSelectiveResponse = SessionCompactSelectiveResponses[keyof SessionCompactSelectiveResponses]
+
+export type SessionCompactTemplatesData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/session/{sessionID}/compact/templates"
+}
+
+export type SessionCompactTemplatesResponses = {
+  /**
+   * Compaction templates
+   */
+  200: {
+    [key: string]: string
+  }
+}
+
+export type SessionCompactTemplatesResponse = SessionCompactTemplatesResponses[keyof SessionCompactTemplatesResponses]
+
 export type SessionMessagesData = {
   body?: never
   path: {
@@ -3163,6 +3362,10 @@ export type SessionPromptData = {
     }
     system?: string
     variant?: string
+    messages?: Array<{
+      info: Message
+      parts: Array<Part>
+    }>
     parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {
@@ -3350,6 +3553,10 @@ export type SessionPromptAsyncData = {
     }
     system?: string
     variant?: string
+    messages?: Array<{
+      info: Message
+      parts: Array<Part>
+    }>
     parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {
@@ -3396,6 +3603,7 @@ export type SessionCommandData = {
     variant?: string
     parts?: Array<{
       id?: string
+      excluded?: boolean
       type: "file"
       mime: string
       filename?: string

@@ -173,6 +173,11 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           inflight.set(sessionID, promise)
           return promise
         },
+        // Force refresh messages from server (useful after loading a snapshot)
+        async refresh(sessionID: string) {
+          const limit = meta.limit[sessionID] ?? chunk
+          await loadMessages(sessionID, limit)
+        },
         async diff(sessionID: string) {
           if (store.session_diff[sessionID] !== undefined) return
 

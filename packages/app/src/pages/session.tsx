@@ -1,4 +1,4 @@
-import { For, onCleanup, onMount, Show, Match, Switch, createMemo, createEffect, on } from "solid-js"
+import { For, onCleanup, onMount, Show, Match, Switch, createMemo, createEffect, on, type ParentProps } from "solid-js"
 import { createMediaQuery } from "@solid-primitives/media"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { Dynamic } from "solid-js/web"
@@ -28,6 +28,7 @@ import { useLayout } from "@/context/layout"
 import { Terminal } from "@/components/terminal"
 import { checksum, base64Encode, base64Decode } from "@opencode-ai/util/encode"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useData, DataProvider } from "@opencode-ai/ui/context"
 import { DialogSelectFile } from "@/components/dialog-select-file"
 import { DialogSelectModel } from "@/components/dialog-select-model"
 import { DialogSelectMcp } from "@/components/dialog-select-mcp"
@@ -49,6 +50,8 @@ import {
   FileVisual,
   SortableTerminalTab,
   NewSessionView,
+  LoadedSnapshotProvider,
+  useLoadedSnapshot,
 } from "@/components/session"
 import { usePlatform } from "@/context/platform"
 import { navMark, navParams } from "@/utils/perf"
@@ -152,7 +155,61 @@ function SessionReviewTab(props: SessionReviewTabProps) {
   )
 }
 
+// Provides snapshot-merged data to child components when a snapshot is loaded
+function SnapshotDataProvider(props: ParentProps) {
+  const parentData = useData()
+  const loadedSnapshotCtx = useLoadedSnapshot()
+  const params = useParams()
+
+  // Create a merged data object that uses snapshot data when loaded
+  const mergedData = createMemo(() => {
+    const snapshot = loadedSnapshotCtx.snapshot()
+    const sessionID = params.id
+
+    if (!snapshot || !sessionID) {
+      return parentData.store
+    }
+
+    // When a snapshot is loaded, show snapshot data in the UI
+    // (before submission, user sees the snapshot they loaded)
+    return {
+      ...parentData.store,
+      message: {
+        ...parentData.store.message,
+        [sessionID]: snapshot.messages,
+      },
+      part: {
+        ...parentData.store.part,
+        ...snapshot.parts,
+      },
+    }
+  })
+
+  return (
+    <DataProvider
+      data={mergedData()}
+      directory={parentData.directory}
+      onPermissionRespond={parentData.respondToPermission}
+      onQuestionReply={parentData.replyToQuestion}
+      onQuestionReject={parentData.rejectQuestion}
+      onNavigateToSession={parentData.navigateToSession}
+    >
+      {props.children}
+    </DataProvider>
+  )
+}
+
 export default function Page() {
+  return (
+    <LoadedSnapshotProvider>
+      <SnapshotDataProvider>
+        <PageContent />
+      </SnapshotDataProvider>
+    </LoadedSnapshotProvider>
+  )
+}
+
+function PageContent() {
   const layout = useLayout()
   const local = useLocal()
   const file = useFile()
@@ -167,6 +224,21 @@ export default function Page() {
   const sdk = useSDK()
   const prompt = usePrompt()
   const permission = usePermission()
+  const loadedSnapshotCtx = useLoadedSnapshot()
+
+  // Clear snapshot when switching sessions
+  createEffect(
+    on(
+      () => params.id,
+      (_currentId, prevId) => {
+        // Clear snapshot when navigating to a different session
+        if (prevId !== undefined) {
+          loadedSnapshotCtx.clear()
+        }
+      },
+    ),
+  )
+
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
   const tabs = createMemo(() => layout.tabs(sessionKey()))
   const view = createMemo(() => layout.view(sessionKey()))
@@ -268,8 +340,15 @@ export default function Page() {
   const reviewCount = createMemo(() => info()?.summary?.files ?? 0)
   const hasReview = createMemo(() => reviewCount() > 0)
   const revertMessageID = createMemo(() => info()?.revert?.messageID)
-  const messages = createMemo(() => (params.id ? (sync.data.message[params.id] ?? []) : []))
+  // Use snapshot messages when loaded, otherwise use live data
+  const messages = createMemo(() => {
+    const snapshot = loadedSnapshotCtx.snapshot()
+    if (snapshot) return snapshot.messages
+    return params.id ? (sync.data.message[params.id] ?? []) : []
+  })
   const messagesReady = createMemo(() => {
+    // If a snapshot is loaded, messages are always ready
+    if (loadedSnapshotCtx.isLoaded()) return true
     const id = params.id
     if (!id) return true
     return sync.data.message[id] !== undefined

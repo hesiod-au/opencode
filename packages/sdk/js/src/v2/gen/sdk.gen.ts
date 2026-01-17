@@ -52,6 +52,7 @@ import type {
   McpLocalConfig,
   McpRemoteConfig,
   McpStatusResponses,
+  Message,
   Part as Part2,
   PartDeleteErrors,
   PartDeleteResponses,
@@ -97,6 +98,13 @@ import type {
   SessionChildrenResponses,
   SessionCommandErrors,
   SessionCommandResponses,
+  SessionCompactApplyErrors,
+  SessionCompactApplyResponses,
+  SessionCompactPreviewErrors,
+  SessionCompactPreviewResponses,
+  SessionCompactSelectiveErrors,
+  SessionCompactSelectiveResponses,
+  SessionCompactTemplatesResponses,
   SessionCreateErrors,
   SessionCreateResponses,
   SessionDeleteErrors,
@@ -1235,6 +1243,173 @@ export class Session extends HeyApiClient {
   }
 
   /**
+   * Preview compaction
+   *
+   * Generate a preview of what the compaction summary would look like without applying it.
+   */
+  public compactPreview<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      providerID?: string
+      modelID?: string
+      prompt?: string
+      partIds?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "body", key: "providerID" },
+            { in: "body", key: "modelID" },
+            { in: "body", key: "prompt" },
+            { in: "body", key: "partIds" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionCompactPreviewResponses,
+      SessionCompactPreviewErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/compact/preview",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Apply custom compaction
+   *
+   * Apply a custom or edited summary as the compaction result.
+   */
+  public compactApply<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      providerID?: string
+      modelID?: string
+      summary?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "body", key: "providerID" },
+            { in: "body", key: "modelID" },
+            { in: "body", key: "summary" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionCompactApplyResponses, SessionCompactApplyErrors, ThrowOnError>(
+      {
+        url: "/session/{sessionID}/compact/apply",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
+  /**
+   * Apply selective compaction
+   *
+   * Apply a summary to selected parts and mark them as excluded. Unlike regular compaction, this does not create a boundary - original messages stay visible but are excluded from LLM submissions.
+   */
+  public compactSelective<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      providerID?: string
+      modelID?: string
+      summary?: string
+      partIds?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "body", key: "providerID" },
+            { in: "body", key: "modelID" },
+            { in: "body", key: "summary" },
+            { in: "body", key: "partIds" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionCompactSelectiveResponses,
+      SessionCompactSelectiveErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/compact/selective",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get compaction templates
+   *
+   * Get available compaction prompt templates.
+   */
+  public compactTemplates<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionCompactTemplatesResponses, unknown, ThrowOnError>({
+      url: "/session/{sessionID}/compact/templates",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Get session messages
    *
    * Retrieve all messages in a session, including user prompts and AI responses.
@@ -1287,6 +1462,10 @@ export class Session extends HeyApiClient {
       }
       system?: string
       variant?: string
+      messages?: Array<{
+        info: Message
+        parts: Array<Part2>
+      }>
       parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
     },
     options?: Options<never, ThrowOnError>,
@@ -1305,6 +1484,7 @@ export class Session extends HeyApiClient {
             { in: "body", key: "tools" },
             { in: "body", key: "system" },
             { in: "body", key: "variant" },
+            { in: "body", key: "messages" },
             { in: "body", key: "parts" },
           ],
         },
@@ -1375,6 +1555,10 @@ export class Session extends HeyApiClient {
       }
       system?: string
       variant?: string
+      messages?: Array<{
+        info: Message
+        parts: Array<Part2>
+      }>
       parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
     },
     options?: Options<never, ThrowOnError>,
@@ -1393,6 +1577,7 @@ export class Session extends HeyApiClient {
             { in: "body", key: "tools" },
             { in: "body", key: "system" },
             { in: "body", key: "variant" },
+            { in: "body", key: "messages" },
             { in: "body", key: "parts" },
           ],
         },
@@ -1427,6 +1612,7 @@ export class Session extends HeyApiClient {
       variant?: string
       parts?: Array<{
         id?: string
+        excluded?: boolean
         type: "file"
         mime: string
         filename?: string

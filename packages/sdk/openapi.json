@@ -2146,6 +2146,25 @@
                   "variant": {
                     "type": "string"
                   },
+                  "messages": {
+                    "description": "Optional: Override the message history entirely. When provided, this array is used instead of fetching messages from storage. Enables client-controlled context for snapshots, exclusions, and edited content.",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "info": {
+                          "$ref": "#/components/schemas/Message"
+                        },
+                        "parts": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Part"
+                          }
+                        }
+                      },
+                      "required": ["info", "parts"]
+                    }
+                  },
                   "parts": {
                     "type": "array",
                     "items": {

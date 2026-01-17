@@ -293,8 +293,19 @@ export namespace Session {
     z.object({
       sessionID: Identifier.schema("session"),
       limit: z.number().optional(),
+      includeCompacted: z.boolean().optional().default(false),
     }),
     async (input) => {
+      // By default, filter out messages before the compaction boundary
+      if (!input.includeCompacted) {
+        const filtered = await MessageV2.filterCompacted(MessageV2.stream(input.sessionID))
+        if (input.limit) {
+          return filtered.slice(-input.limit)
+        }
+        return filtered
+      }
+
+      // If includeCompacted is true, return all messages
       const result = [] as MessageV2.WithParts[]
       for await (const msg of MessageV2.stream(input.sessionID)) {
         if (input.limit && result.length >= input.limit) break
