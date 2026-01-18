@@ -55,7 +55,7 @@ import { createOpencodeClient, type Message, type Part } from "@opencode-ai/sdk/
 import { Binary } from "@opencode-ai/util/binary"
 import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode } from "@opencode-ai/util/encode"
-import { useLoadedSnapshot } from "@/components/session"
+import { useLoadedSnapshot, useArchive } from "@/components/session"
 
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"]
 const ACCEPTED_FILE_TYPES = [...ACCEPTED_IMAGE_TYPES, "application/pdf"]
@@ -120,6 +120,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const command = useCommand()
   const permission = usePermission()
   const loadedSnapshotCtx = useLoadedSnapshot()
+  const archive = useArchive(sdk.directory)
   let editorRef!: HTMLDivElement
   let fileInputRef!: HTMLInputElement
   let scrollRef!: HTMLDivElement
@@ -1302,6 +1303,27 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         return
       }
       targetSession = newSession
+
+      // Archive excluded parts before clearing
+      const excludedIds = loadedSnapshotCtx.excluded()
+      if (excludedIds.size > 0) {
+        const sessionInfo = sync.data.session.find((s) => s.id === session.id)
+        const toArchive: { part: Part; message: Message; sessionId: string; sessionName?: string }[] = []
+
+        for (const msg of liveMessages) {
+          const msgParts = liveParts[msg.id] ?? []
+          for (const part of msgParts) {
+            if (excludedIds.has(part.id)) {
+              toArchive.push({ part, message: msg, sessionId: session.id, sessionName: sessionInfo?.title })
+            }
+          }
+        }
+
+        if (toArchive.length > 0) {
+          archive.addManyToArchive(toArchive)
+        }
+      }
+
       // Clear the snapshot and navigate to new session
       // The server has stored the messages, so they'll appear via sync
       loadedSnapshotCtx.clear()

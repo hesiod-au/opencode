@@ -219,6 +219,38 @@ export function SessionContextTab(props: SessionContextTabProps) {
     }).format(total)
   })
 
+  const projectedCost = createMemo(() => {
+    const c = ctx()
+    if (!c?.limit || !c?.total) return null
+
+    const messages = getMessages()
+    const assistantMessages = messages.filter((m) => m.role === "assistant")
+    if (assistantMessages.length === 0) return null
+
+    // Calculate average tokens per assistant message
+    const avgTokensPerMessage = c.total / assistantMessages.length
+
+    // Calculate remaining context capacity
+    const remainingTokens = c.limit - c.total
+    if (remainingTokens <= 0) return null
+
+    // Estimate how many more messages could fit
+    const estimatedRemainingMessages = Math.floor(remainingTokens / avgTokensPerMessage)
+    if (estimatedRemainingMessages <= 0) return null
+
+    // Calculate average cost per assistant message
+    const totalCostNum = assistantMessages.reduce((sum, m) => sum + m.cost, 0)
+    const avgCostPerMessage = totalCostNum / assistantMessages.length
+
+    // Project additional cost
+    const projectedAdditionalCost = estimatedRemainingMessages * avgCostPerMessage
+
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+    }).format(projectedAdditionalCost)
+  })
+
   const counts = createMemo(() => {
     const all = getMessages()
     const user = all.reduce((count, x) => count + (x.role === "user" ? 1 : 0), 0)
@@ -395,6 +427,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
   const stats = createMemo(() => {
     const c = ctx()
     const count = counts()
+    const projected = projectedCost()
     return [
       { label: "Session", value: props.info()?.title ?? params.id ?? "—" },
       { label: "Messages", value: count.all.toLocaleString() },
@@ -410,6 +443,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
       { label: "User Messages", value: count.user.toLocaleString() },
       { label: "Assistant Messages", value: count.assistant.toLocaleString() },
       { label: "Total Cost", value: cost() },
+      ...(projected ? [{ label: "Projected Additional Cost", value: projected }] : []),
       { label: "Session Created", value: time(props.info()?.time.created) },
       { label: "Last Activity", value: time(c?.message.time.created) },
     ] satisfies { label: string; value: JSX.Element }[]

@@ -154,7 +154,7 @@ export namespace Session {
       const session = await createNext({
         directory: Instance.directory,
       })
-      const msgs = await messages({ sessionID: input.sessionID })
+      const msgs = await messages({ sessionID: input.sessionID, includeCompacted: false })
       const idMap = new Map<string, string>()
 
       for (const msg of msgs) {

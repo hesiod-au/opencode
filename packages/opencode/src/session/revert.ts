@@ -21,7 +21,7 @@ export namespace SessionRevert {
 
   export async function revert(input: RevertInput) {
     SessionPrompt.assertNotBusy(input.sessionID)
-    const all = await Session.messages({ sessionID: input.sessionID })
+    const all = await Session.messages({ sessionID: input.sessionID, includeCompacted: false })
     let lastUser: MessageV2.User | undefined
     const session = await Session.get(input.sessionID)
 
@@ -79,7 +79,7 @@ export namespace SessionRevert {
   export async function cleanup(session: Session.Info) {
     if (!session.revert) return
     const sessionID = session.id
-    let msgs = await Session.messages({ sessionID })
+    let msgs = await Session.messages({ sessionID, includeCompacted: false })
     const messageID = session.revert.messageID
     const [preserve, remove] = splitWhen(msgs, (x) => x.info.id === messageID)
     msgs = preserve

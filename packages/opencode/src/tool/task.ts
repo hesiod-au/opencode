@@ -159,7 +159,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         parts: promptParts,
       })
       unsub()
-      const messages = await Session.messages({ sessionID: session.id })
+      const messages = await Session.messages({ sessionID: session.id, includeCompacted: false })
       const summary = messages
         .filter((x) => x.info.role === "assistant")
         .flatMap((msg) => msg.parts.filter((x: any) => x.type === "tool") as MessageV2.ToolPart[])

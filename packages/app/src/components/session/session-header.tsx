@@ -18,6 +18,7 @@ import { Popover } from "@opencode-ai/ui/popover"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { Keybind } from "@opencode-ai/ui/keybind"
 import { DialogSnippetsPicker } from "./dialog-snippets-picker"
+import { DialogArchiveList } from "./dialog-archive-list"
 
 export function SessionHeader() {
   const globalSDK = useGlobalSDK()
@@ -57,6 +58,11 @@ export function SessionHeader() {
   const openSnippets = () => {
     if (!params.id) return
     dialog.show(() => <DialogSnippetsPicker sessionID={params.id!} />)
+  }
+
+  const openArchive = () => {
+    if (!params.id) return
+    dialog.show(() => <DialogArchiveList workspaceDir={projectDirectory()} />)
   }
 
   const centerMount = createMemo(() => document.getElementById("opencode-titlebar-center"))
@@ -120,6 +126,11 @@ export function SessionHeader() {
                   <Tooltip value="Snippets" placement="bottom" class="hidden md:block shrink-0">
                     <Button variant="ghost" class="size-6 p-0" onClick={openSnippets}>
                       <Icon name="code" size="small" class="icon-base" />
+                    </Button>
+                  </Tooltip>
+                  <Tooltip value="Archive" placement="bottom" class="hidden md:block shrink-0">
+                    <Button variant="ghost" class="size-6 p-0" onClick={openArchive}>
+                      <Icon name="archive" size="small" class="icon-base" />
                     </Button>
                   </Tooltip>
                 </Show>

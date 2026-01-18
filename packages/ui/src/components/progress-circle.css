@@ -7,6 +7,16 @@
 
   [data-slot="progress-circle-progress"] {
     stroke: var(--border-active);
-    transition: stroke-dashoffset 0.35s cubic-bezier(0.65, 0, 0.35, 1);
+    transition:
+      stroke-dashoffset 0.35s cubic-bezier(0.65, 0, 0.35, 1),
+      stroke 0.2s ease;
+  }
+
+  &[data-status="warning"] [data-slot="progress-circle-progress"] {
+    stroke: var(--icon-warning-base);
+  }
+
+  &[data-status="critical"] [data-slot="progress-circle-progress"] {
+    stroke: var(--icon-critical-base);
   }
 }

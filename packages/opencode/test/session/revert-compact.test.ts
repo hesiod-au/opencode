@@ -143,7 +143,7 @@ describe("revert + compact workflow", () => {
         })
 
         // Verify messages before revert
-        let messages = await Session.messages({ sessionID })
+        let messages = await Session.messages({ sessionID, includeCompacted: false })
         expect(messages.length).toBe(4) // 2 user + 2 assistant messages
         const messageIds = messages.map((m) => m.info.id)
         expect(messageIds).toContain(userMsg1.id)
@@ -164,14 +164,14 @@ describe("revert + compact workflow", () => {
         expect(revertMessageID).toBeDefined()
 
         // Messages should still be in the list (not removed yet, just marked for revert)
-        messages = await Session.messages({ sessionID })
+        messages = await Session.messages({ sessionID, includeCompacted: false })
         expect(messages.length).toBe(4)
 
         // Now clean up the revert state (this is what the compact endpoint should do)
         await SessionRevert.cleanup(sessionInfo)
 
         // After cleanup, the reverted messages (those after the revert point) should be removed
-        messages = await Session.messages({ sessionID })
+        messages = await Session.messages({ sessionID, includeCompacted: false })
         const remainingIds = messages.map((m) => m.info.id)
         // The revert point is somewhere in the message chain, so we should have fewer messages
         expect(messages.length).toBeLessThan(4)
@@ -274,7 +274,7 @@ describe("revert + compact workflow", () => {
         expect(sessionInfo.revert).toBeUndefined()
 
         // Verify messages are properly cleaned up
-        const messages = await Session.messages({ sessionID })
+        const messages = await Session.messages({ sessionID, includeCompacted: false })
         expect(messages.length).toBe(0) // All messages should be reverted
 
         // Clean up

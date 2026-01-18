@@ -75,7 +75,7 @@ export namespace SessionCompaction {
     const config = await Config.get()
     if (config.compaction?.prune === false) return
     log.info("pruning")
-    const msgs = await Session.messages({ sessionID: input.sessionID })
+    const msgs = await Session.messages({ sessionID: input.sessionID, includeCompacted: false })
     let total = 0
     let pruned = 0
     const toPrune = []
@@ -124,7 +124,7 @@ export namespace SessionCompaction {
       partIds: z.array(z.string()).optional(),
     }),
     async (input): Promise<{ summary: string; tokenEstimate: number }> => {
-      const msgs = await Session.messages({ sessionID: input.sessionID })
+      const msgs = await Session.messages({ sessionID: input.sessionID, includeCompacted: false })
       const agent = await Agent.get("compaction")
       const model = await Provider.getModel(input.providerID, input.modelID)
 
@@ -225,7 +225,7 @@ export namespace SessionCompaction {
         auto: input.auto,
       })
 
-      const msgs = await Session.messages({ sessionID: input.sessionID })
+      const msgs = await Session.messages({ sessionID: input.sessionID, includeCompacted: false })
       const lastUserMsg = msgs.findLast((m) => m.info.role === "user")?.info as MessageV2.User
 
       if (!lastUserMsg) {

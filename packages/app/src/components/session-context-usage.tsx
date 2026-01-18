@@ -8,6 +8,9 @@ import { AssistantMessage } from "@opencode-ai/sdk/v2/client"
 import { useLayout } from "@/context/layout"
 import { useSync } from "@/context/sync"
 
+const CONTEXT_WARNING_THRESHOLD = 80
+const CONTEXT_CRITICAL_THRESHOLD = 95
+
 interface SessionContextUsageProps {
   variant?: "button" | "indicator"
 }
@@ -47,6 +50,14 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
     }
   })
 
+  const status = createMemo((): "normal" | "warning" | "critical" => {
+    const pct = context()?.percentage
+    if (pct == null) return "normal"
+    if (pct >= CONTEXT_CRITICAL_THRESHOLD) return "critical"
+    if (pct >= CONTEXT_WARNING_THRESHOLD) return "warning"
+    return "normal"
+  })
+
   const openContext = () => {
     if (!params.id) return
     view().reviewPanel.open()
@@ -56,12 +67,32 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
 
   const circle = () => (
     <div class="p-1">
-      <ProgressCircle size={16} strokeWidth={2} percentage={context()?.percentage ?? 0} />
+      <ProgressCircle size={16} strokeWidth={2} percentage={context()?.percentage ?? 0} status={status()} />
     </div>
   )
 
+  const statusLabel = createMemo(() => {
+    const s = status()
+    if (s === "critical") return "Context nearly full"
+    if (s === "warning") return "Context usage high"
+    return null
+  })
+
   const tooltipValue = () => (
     <div>
+      <Show when={statusLabel()}>
+        {(label) => (
+          <div
+            class="text-11-medium mb-1 pb-1 border-b border-border-weak-base"
+            classList={{
+              "text-icon-warning-base": status() === "warning",
+              "text-icon-critical-base": status() === "critical",
+            }}
+          >
+            {label()}
+          </div>
+        )}
+      </Show>
       <Show when={context()}>
         {(ctx) => (
           <>
@@ -70,7 +101,15 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
               <span class="text-text-invert-base">Tokens</span>
             </div>
             <div class="flex items-center gap-2">
-              <span class="text-text-invert-strong">{ctx().percentage ?? 0}%</span>
+              <span
+                class="text-text-invert-strong"
+                classList={{
+                  "text-icon-warning-base": status() === "warning",
+                  "text-icon-critical-base": status() === "critical",
+                }}
+              >
+                {ctx().percentage ?? 0}%
+              </span>
               <span class="text-text-invert-base">Usage</span>
             </div>
           </>

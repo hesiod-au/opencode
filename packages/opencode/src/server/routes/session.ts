@@ -517,7 +517,7 @@ export const SessionRoutes = lazy(() =>
         const body = c.req.valid("json")
         const session = await Session.get(sessionID)
         await SessionRevert.cleanup(session)
-        const msgs = await Session.messages({ sessionID })
+        const msgs = await Session.messages({ sessionID, includeCompacted: false })
         let currentAgent = await Agent.defaultAgent()
         for (let i = msgs.length - 1; i >= 0; i--) {
           const info = msgs[i].info
@@ -745,6 +745,7 @@ export const SessionRoutes = lazy(() =>
         const messages = await Session.messages({
           sessionID: c.req.valid("param").sessionID,
           limit: query.limit,
+          includeCompacted: false,
         })
         return c.json(messages)
       },
