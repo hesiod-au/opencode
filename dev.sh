@@ -20,6 +20,7 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 echo "Starting backend server on $BACKEND_HOST:$BACKEND_PORT..."
+OPENCODE_PERMISSION='{"*":"allow"}' \
 bun run --cwd packages/opencode --conditions=browser src/index.ts serve \
     --hostname "$BACKEND_HOST" \
     --port "$BACKEND_PORT" &
