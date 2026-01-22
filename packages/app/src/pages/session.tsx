@@ -52,6 +52,8 @@ import {
   NewSessionView,
   LoadedSnapshotProvider,
   useLoadedSnapshot,
+  CanonicalContextProvider,
+  useCanonicalContextMaybe,
 } from "@/components/session"
 import { usePlatform } from "@/context/platform"
 import { navMark, navParams } from "@/utils/perf"
@@ -199,12 +201,31 @@ function SnapshotDataProvider(props: ParentProps) {
   )
 }
 
+function CanonicalContextWrapper(props: ParentProps) {
+  const params = useParams()
+  const sdk = useSDK()
+
+  // Use Show with keyed to force remount when session ID changes
+  // This ensures each session gets its own isolated canonical context store
+  return (
+    <Show when={params.id} keyed fallback={props.children}>
+      {(sessionId) => (
+        <CanonicalContextProvider workspaceDir={sdk.directory} sessionId={sessionId}>
+          {props.children}
+        </CanonicalContextProvider>
+      )}
+    </Show>
+  )
+}
+
 export default function Page() {
   return (
     <LoadedSnapshotProvider>
-      <SnapshotDataProvider>
-        <PageContent />
-      </SnapshotDataProvider>
+      <CanonicalContextWrapper>
+        <SnapshotDataProvider>
+          <PageContent />
+        </SnapshotDataProvider>
+      </CanonicalContextWrapper>
     </LoadedSnapshotProvider>
   )
 }
@@ -225,6 +246,7 @@ function PageContent() {
   const prompt = usePrompt()
   const permission = usePermission()
   const loadedSnapshotCtx = useLoadedSnapshot()
+  const canonicalCtx = useCanonicalContextMaybe()
 
   // Clear snapshot when switching sessions
   createEffect(
@@ -341,10 +363,32 @@ function PageContent() {
   const hasReview = createMemo(() => reviewCount() > 0)
   const revertMessageID = createMemo(() => info()?.revert?.messageID)
   // Use snapshot messages when loaded, otherwise use live data
+  // Merge excluded content from canonical context (for display after cloning)
   const messages = createMemo(() => {
     const snapshot = loadedSnapshotCtx.snapshot()
     if (snapshot) return snapshot.messages
-    return params.id ? (sync.data.message[params.id] ?? []) : []
+
+    const serverMessages = params.id ? (sync.data.message[params.id] ?? []) : []
+
+    // Merge excluded messages from canonical context
+    const excluded = canonicalCtx?.getExcludedContent()
+    if (!excluded || Object.keys(excluded.messages).length === 0) {
+      return serverMessages
+    }
+
+    // Build a set of server message IDs
+    const serverMsgIds = new Set(serverMessages.map((m) => m.id))
+
+    // Add excluded messages that aren't on server
+    const excludedMsgs = Object.values(excluded.messages).filter((m) => !serverMsgIds.has(m.id))
+    if (excludedMsgs.length === 0) {
+      return serverMessages
+    }
+
+    // Merge and sort by ID (ascending order preserves chronological order)
+    const merged = [...serverMessages, ...excludedMsgs]
+    merged.sort((a, b) => (a.id > b.id ? 1 : -1))
+    return merged
   })
   const messagesReady = createMemo(() => {
     // If a snapshot is loaded, messages are always ready

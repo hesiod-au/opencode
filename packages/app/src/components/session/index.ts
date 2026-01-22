@@ -11,3 +11,4 @@ export { LoadedSnapshotProvider, useLoadedSnapshot } from "./use-loaded-snapshot
 export { type PartEdit } from "./use-context-snapshots"
 export { useArchive, type ArchivedItem, type ArchiveInput } from "./use-archive"
 export { DialogArchiveList } from "./dialog-archive-list"
+export { CanonicalContextProvider, useCanonicalContext, useCanonicalContextMaybe, type ItemState } from "./use-canonical-context"

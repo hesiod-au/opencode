@@ -28,6 +28,7 @@ import { ReadTool } from "../tool/read"
 import { ListTool } from "../tool/ls"
 import { FileTime } from "../file/time"
 import { Flag } from "../flag/flag"
+import { Storage } from "../storage/storage"
 import { ulid } from "ulid"
 import { spawn } from "child_process"
 import { Command } from "../command"
@@ -164,6 +165,83 @@ export namespace SessionPrompt {
     const session = await Session.get(input.sessionID)
     await SessionRevert.cleanup(session)
 
+    // If client provided messages override, process it FIRST before creating the new user message.
+    // This ensures the override (history) messages have IDs that sort BEFORE the new user message.
+    if (input.messages && input.messages.length > 0) {
+      log.info("SNAPSHOT: replacing session history with override", {
+        sessionID: input.sessionID,
+        overrideCount: input.messages.length,
+        messages: input.messages.map((m) => ({
+          id: m.info.id,
+          role: m.info.role,
+          partsCount: m.parts.length,
+          partTypes: m.parts.map((p) => p.type),
+        })),
+      })
+
+      // Delete any existing messages for this session
+      let deletedMsgCount = 0
+      const existingMsgKeys = await Storage.list(["message", input.sessionID])
+      for (const msgKey of existingMsgKeys) {
+        await Storage.remove(msgKey)
+        deletedMsgCount++
+      }
+
+      // Store override messages and parts with NEW IDs - this IS the complete session content
+      // Parts are stored globally by messageID, so we must clone with new IDs to avoid
+      // corrupting the original session's data when forking
+
+      // First pass: generate new IDs for all messages and build ID mapping
+      const messageIdMap = new Map<string, string>() // old ID -> new ID
+      for (const msg of input.messages) {
+        const newMessageId = Identifier.ascending("message")
+        messageIdMap.set(msg.info.id, newMessageId)
+      }
+
+      // Second pass: store messages with updated IDs and references
+      let storedMsgCount = 0
+      let storedPartCount = 0
+      for (const msg of input.messages) {
+        const newMessageId = messageIdMap.get(msg.info.id)!
+
+        // Clone message with new ID and updated references
+        let storedMessage: MessageV2.Info
+        if (msg.info.role === "assistant") {
+          // Update parentID to point to the new user message ID
+          const newParentId = messageIdMap.get(msg.info.parentID) ?? msg.info.parentID
+          storedMessage = {
+            ...msg.info,
+            id: newMessageId,
+            sessionID: input.sessionID,
+            parentID: newParentId,
+          }
+        } else {
+          storedMessage = {
+            ...msg.info,
+            id: newMessageId,
+            sessionID: input.sessionID,
+          }
+        }
+        await Session.updateMessage(storedMessage)
+        storedMsgCount++
+
+        // Store the override parts with new IDs, referencing the new message ID
+        for (const part of msg.parts) {
+          const newPartId = Identifier.ascending("part")
+          const storedPart: MessageV2.Part = {
+            ...part,
+            id: newPartId,
+            messageID: newMessageId,
+            sessionID: input.sessionID,
+          }
+          await Session.updatePart(storedPart)
+          storedPartCount++
+        }
+      }
+      log.info("SNAPSHOT: processed override", { deletedMsgCount, storedMsgCount, storedPartCount })
+    }
+
+    // Create the new user message AFTER processing override, so its ID is higher (sorts last)
     const message = await createUserMessage(input)
     await Session.touch(input.sessionID)
 
@@ -186,45 +264,6 @@ export namespace SessionPrompt {
 
     if (input.noReply === true) {
       return message
-    }
-
-    // If client provided messages override, store them in this session.
-    // This allows "forking" from a snapshot - the new session gets the full history.
-    if (input.messages && input.messages.length > 0) {
-      log.info("SNAPSHOT: storing messages override in session", {
-        sessionID: input.sessionID,
-        count: input.messages.length,
-      })
-
-      let storedCount = 0
-      let partCount = 0
-      for (const msg of input.messages) {
-        // Update message's sessionID to the new session
-        const storedMessage: MessageV2.Info = {
-          ...msg.info,
-          sessionID: input.sessionID,
-        }
-        log.info("SNAPSHOT: storing message", {
-          oldSessionID: msg.info.sessionID,
-          newSessionID: input.sessionID,
-          messageID: msg.info.id,
-          role: msg.info.role,
-          partsCount: msg.parts.length,
-        })
-        await Session.updateMessage(storedMessage)
-        storedCount++
-
-        // Store all parts with updated sessionID
-        for (const part of msg.parts) {
-          const storedPart: MessageV2.Part = {
-            ...part,
-            sessionID: input.sessionID,
-          }
-          await Session.updatePart(storedPart)
-          partCount++
-        }
-      }
-      log.info("SNAPSHOT: finished storing", { storedCount, partCount })
     }
 
     return loop(input.sessionID)
@@ -327,7 +366,17 @@ export namespace SessionPrompt {
 
       // Fetch messages from storage
       let msgs = await MessageV2.filterCompacted(MessageV2.stream(sessionID))
-      log.info("loop step", { step, sessionID, messageCount: msgs.length })
+      log.info("loop step", {
+        step,
+        sessionID,
+        messageCount: msgs.length,
+        messages: msgs.map((m) => ({
+          id: m.info.id,
+          role: m.info.role,
+          partsCount: m.parts.length,
+          partTypes: m.parts.map((p) => p.type),
+        })),
+      })
 
       let lastUser: MessageV2.User | undefined
       let lastAssistant: MessageV2.Assistant | undefined

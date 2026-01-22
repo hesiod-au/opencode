@@ -29,7 +29,16 @@ interface LoadedSnapshotContextValue {
   hasChanges: () => boolean
 
   // Build messages array for prompt submission (applies exclusions and edits)
-  getMessagesForPrompt: (liveMessages: Message[], liveParts: Record<string, Part[]>) => MessageWithParts[] | undefined
+  // Optional forceInclusions parameter for three-state canonical context
+  // Optional additionalExclusions parameter for canonical context exclusions
+  // Optional forceOverride to always return override (e.g., when re-including previously excluded content)
+  getMessagesForPrompt: (
+    liveMessages: Message[],
+    liveParts: Record<string, Part[]>,
+    forceInclusions?: Set<string>,
+    additionalExclusions?: Set<string>,
+    forceOverride?: boolean,
+  ) => MessageWithParts[] | undefined
 }
 
 const LoadedSnapshotContext = createContext<LoadedSnapshotContextValue>()
@@ -98,16 +107,24 @@ export function LoadedSnapshotProvider(props: ParentProps) {
 
   // Build messages array for prompt submission
   // Returns undefined if no override is needed (use server's messages)
+  // forceInclusions: Set of part IDs that should always be included (even if not in server messages)
+  // additionalExclusions: Set of part IDs to exclude (from canonical context)
+  // forceOverride: Always return override even if no changes (e.g., re-including previously excluded content)
   const getMessagesForPrompt = (
     liveMessages: Message[],
     liveParts: Record<string, Part[]>,
+    forceInclusions?: Set<string>,
+    additionalExclusions?: Set<string>,
+    forceOverride?: boolean,
   ): MessageWithParts[] | undefined => {
     const snap = snapshot()
     const excl = excluded()
     const eds = edits()
+    const hasForceInclusions = forceInclusions && forceInclusions.size > 0
+    const hasAdditionalExclusions = additionalExclusions && additionalExclusions.size > 0
 
-    // If no snapshot loaded and no changes, let server handle it
-    if (!snap && excl.size === 0 && eds.size === 0) {
+    // If no snapshot loaded and no changes and no force inclusions/exclusions and not forced, let server handle it
+    if (!snap && excl.size === 0 && eds.size === 0 && !hasForceInclusions && !hasAdditionalExclusions && !forceOverride) {
       return undefined
     }
 
@@ -115,24 +132,43 @@ export function LoadedSnapshotProvider(props: ParentProps) {
     const sourceMessages = snap ? snap.messages : liveMessages
     const sourceParts = snap ? snap.parts : liveParts
 
-    // Apply exclusions and edits
-    return sourceMessages.map((msg) => {
-      const msgParts = sourceParts[msg.id] ?? []
-      const processedParts = msgParts
-        .filter((part) => !excl.has(part.id))
-        .map((part) => {
-          const edit = eds.get(part.id)
-          if (edit) {
-            return applyEdit(part, edit)
-          }
-          return part
-        })
+    // Part types that are not selectable/excludable and should be filtered when
+    // a message is effectively excluded (all selectable parts excluded)
+    const nonSelectableTypes = new Set(["step-start", "snapshot", "patch", "agent"])
 
-      return {
-        info: msg,
-        parts: processedParts,
-      }
-    })
+    // Apply exclusions and edits
+    return sourceMessages
+      .map((msg) => {
+        const msgParts = sourceParts[msg.id] ?? []
+        const processedParts = msgParts
+          .filter((part) => {
+            // If force included, always keep
+            if (forceInclusions?.has(part.id)) return true
+            // Filter out excluded (from both snapshot exclusions and additional exclusions)
+            if (excl.has(part.id)) return false
+            if (additionalExclusions?.has(part.id)) return false
+            return true
+          })
+          .map((part) => {
+            const edit = eds.get(part.id)
+            if (edit) {
+              return applyEdit(part, edit)
+            }
+            return part
+          })
+
+        // Check if any content parts remain (non-metadata parts)
+        // If only non-selectable metadata parts remain, the message has no real content
+        const hasContentParts = processedParts.some((p) => !nonSelectableTypes.has(p.type))
+        // If no content parts remain, filter out metadata parts too (they're meaningless without content)
+        const finalParts = hasContentParts ? processedParts : []
+
+        return {
+          info: msg,
+          parts: finalParts,
+        }
+      })
+      // Don't filter out messages with 0 parts - server needs them to mark their parts as excluded
   }
 
   const value: LoadedSnapshotContextValue = {
