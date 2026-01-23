@@ -239,6 +239,11 @@ export namespace SessionPrompt {
         }
       }
       log.info("SNAPSHOT: processed override", { deletedMsgCount, storedMsgCount, storedPartCount })
+
+      // IMPORTANT: We MUST generate a fresh message ID on the server since the client's
+      // messageID was created before we generated the override IDs (and thus would sort
+      // before them, breaking message order)
+      input.messageID = undefined
     }
 
     // Create the new user message AFTER processing override, so its ID is higher (sorts last)
