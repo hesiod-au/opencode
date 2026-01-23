@@ -117,7 +117,9 @@ function TextPartItem(props: {
   const pendingDeletions = usePendingDeletions()
   const loadedSnapshotCtx = useLoadedSnapshot()
   // Check both local UI exclusion and backend excluded field
-  const isExcluded = () => props.part.excluded || (props.selection?.excluded().has(props.part.id) ?? false)
+  const isExcluded = () => props.part.excluded || (props.selection?.isForceExcluded?.(props.part.id) ?? props.selection?.excluded().has(props.part.id) ?? false)
+  const isForceIncluded = () => props.selection?.isForceIncluded?.(props.part.id) ?? false
+  const isForceExcluded = () => props.selection?.isForceExcluded?.(props.part.id) ?? false
   const isHidden = () => props.selection?.hidden().has(props.part.id) ?? false
   const isCompactSelected = () => props.selection?.compactSelection().has(props.part.id) ?? false
 
@@ -131,9 +133,9 @@ function TextPartItem(props: {
   })
   const isEdited = () => loadedSnapshotCtx.getEdit(props.part.id) !== undefined
 
-  const handleExcludeToggle = async (e: MouseEvent) => {
+  const handleIncludeClick = async (e: MouseEvent) => {
     e.stopPropagation()
-    // If part has backend exclusion, update via API
+    // If part has backend exclusion, update via API first
     if (props.part.excluded) {
       await sdk.client.part.update({
         sessionID: props.part.sessionID,
@@ -145,8 +147,17 @@ function TextPartItem(props: {
         },
       })
       props.onPartUpdated?.()
+    }
+    props.selection?.setInclude?.(props.part.id)
+  }
+
+  const handleExcludeClick = (e: MouseEvent) => {
+    e.stopPropagation()
+    if (isForceExcluded()) {
+      // Already excluded - trigger archive flow
+      props.selection?.onDoubleExclude?.(props.part.id)
     } else {
-      props.selection?.toggleExcluded(props.part.id)
+      props.selection?.setExclude?.(props.part.id)
     }
   }
 
@@ -177,12 +188,29 @@ function TextPartItem(props: {
         data-type="text"
         data-role={props.message.role}
         data-excluded={isExcluded()}
+        data-force-include={isForceIncluded()}
+        data-force-exclude={isForceExcluded()}
         data-hidden={isHidden()}
         data-compact-selected={isCompactSelected()}
       >
         <Show when={props.selection}>
-          <div data-slot="context-part-checkbox" onClick={handleExcludeToggle}>
-            <Icon name={isExcluded() ? "dash" : "check"} size="small" />
+          <div data-slot="context-part-controls">
+            <button
+              data-slot="context-control-include"
+              data-active={isForceIncluded()}
+              onClick={handleIncludeClick}
+              title="Always include"
+            >
+              <Icon name="plus" size="small" />
+            </button>
+            <button
+              data-slot="context-control-exclude"
+              data-active={isForceExcluded()}
+              onClick={handleExcludeClick}
+              title={isForceExcluded() ? "Click again to archive" : "Exclude from context"}
+            >
+              <Icon name="dash" size="small" />
+            </button>
           </div>
         </Show>
         <div data-slot="context-part-icon">
@@ -226,13 +254,15 @@ function TextPartItem(props: {
 function ReasoningPartItem(props: { part: ReasoningPart; selection?: SelectionState; onPartUpdated?: () => void }) {
   const sdk = useSDK()
   // Check both local UI exclusion and backend excluded field
-  const isExcluded = () => props.part.excluded || (props.selection?.excluded().has(props.part.id) ?? false)
+  const isExcluded = () => props.part.excluded || (props.selection?.isForceExcluded?.(props.part.id) ?? props.selection?.excluded().has(props.part.id) ?? false)
+  const isForceIncluded = () => props.selection?.isForceIncluded?.(props.part.id) ?? false
+  const isForceExcluded = () => props.selection?.isForceExcluded?.(props.part.id) ?? false
   const isHidden = () => props.selection?.hidden().has(props.part.id) ?? false
   const isCompactSelected = () => props.selection?.compactSelection().has(props.part.id) ?? false
 
-  const handleExcludeToggle = async (e: MouseEvent) => {
+  const handleIncludeClick = async (e: MouseEvent) => {
     e.stopPropagation()
-    // If part has backend exclusion, update via API
+    // If part has backend exclusion, update via API first
     if (props.part.excluded) {
       await sdk.client.part.update({
         sessionID: props.part.sessionID,
@@ -244,8 +274,17 @@ function ReasoningPartItem(props: { part: ReasoningPart; selection?: SelectionSt
         },
       })
       props.onPartUpdated?.()
+    }
+    props.selection?.setInclude?.(props.part.id)
+  }
+
+  const handleExcludeClick = (e: MouseEvent) => {
+    e.stopPropagation()
+    if (isForceExcluded()) {
+      // Already excluded - trigger archive flow
+      props.selection?.onDoubleExclude?.(props.part.id)
     } else {
-      props.selection?.toggleExcluded(props.part.id)
+      props.selection?.setExclude?.(props.part.id)
     }
   }
 
@@ -264,12 +303,29 @@ function ReasoningPartItem(props: { part: ReasoningPart; selection?: SelectionSt
       data-component="context-part-item"
       data-type="reasoning"
       data-excluded={isExcluded()}
+      data-force-include={isForceIncluded()}
+      data-force-exclude={isForceExcluded()}
       data-hidden={isHidden()}
       data-compact-selected={isCompactSelected()}
     >
       <Show when={props.selection}>
-        <div data-slot="context-part-checkbox" onClick={handleExcludeToggle}>
-          <Icon name={isExcluded() ? "dash" : "check"} size="small" />
+        <div data-slot="context-part-controls">
+          <button
+            data-slot="context-control-include"
+            data-active={isForceIncluded()}
+            onClick={handleIncludeClick}
+            title="Always include"
+          >
+            <Icon name="plus" size="small" />
+          </button>
+          <button
+            data-slot="context-control-exclude"
+            data-active={isForceExcluded()}
+            onClick={handleExcludeClick}
+            title={isForceExcluded() ? "Click again to archive" : "Exclude from context"}
+          >
+            <Icon name="dash" size="small" />
+          </button>
         </div>
       </Show>
       <div data-slot="context-part-icon">
@@ -314,15 +370,17 @@ function ToolPartItem(props: {
   const title = () =>
     props.part.state.status === "completed" || props.part.state.status === "running" ? props.part.state.title : undefined
   // Check both local UI exclusion and backend excluded field
-  const isExcluded = () => props.part.excluded || (props.selection?.excluded().has(props.part.id) ?? false)
+  const isExcluded = () => props.part.excluded || (props.selection?.isForceExcluded?.(props.part.id) ?? props.selection?.excluded().has(props.part.id) ?? false)
+  const isForceIncluded = () => props.selection?.isForceIncluded?.(props.part.id) ?? false
+  const isForceExcluded = () => props.selection?.isForceExcluded?.(props.part.id) ?? false
   const isHidden = () => props.selection?.hidden().has(props.part.id) ?? false
   const isCompactSelected = () => props.selection?.compactSelection().has(props.part.id) ?? false
   const canEditOutput = () => props.part.state.status === "completed"
   const isEdited = () => loadedSnapshotCtx.getEdit(props.part.id) !== undefined
 
-  const handleExcludeToggle = async (e: MouseEvent) => {
+  const handleIncludeClick = async (e: MouseEvent) => {
     e.stopPropagation()
-    // If part has backend exclusion, update via API
+    // If part has backend exclusion, update via API first
     if (props.part.excluded) {
       await sdk.client.part.update({
         sessionID: props.part.sessionID,
@@ -334,8 +392,17 @@ function ToolPartItem(props: {
         },
       })
       props.onPartUpdated?.()
+    }
+    props.selection?.setInclude?.(props.part.id)
+  }
+
+  const handleExcludeClick = (e: MouseEvent) => {
+    e.stopPropagation()
+    if (isForceExcluded()) {
+      // Already excluded - trigger archive flow
+      props.selection?.onDoubleExclude?.(props.part.id)
     } else {
-      props.selection?.toggleExcluded(props.part.id)
+      props.selection?.setExclude?.(props.part.id)
     }
   }
 
@@ -368,12 +435,29 @@ function ToolPartItem(props: {
         data-category={getToolCategory(props.part.tool)}
         data-status={status()}
         data-excluded={isExcluded()}
+        data-force-include={isForceIncluded()}
+        data-force-exclude={isForceExcluded()}
         data-hidden={isHidden()}
         data-compact-selected={isCompactSelected()}
       >
         <Show when={props.selection}>
-          <div data-slot="context-part-checkbox" onClick={handleExcludeToggle}>
-            <Icon name={isExcluded() ? "dash" : "check"} size="small" />
+          <div data-slot="context-part-controls">
+            <button
+              data-slot="context-control-include"
+              data-active={isForceIncluded()}
+              onClick={handleIncludeClick}
+              title="Always include"
+            >
+              <Icon name="plus" size="small" />
+            </button>
+            <button
+              data-slot="context-control-exclude"
+              data-active={isForceExcluded()}
+              onClick={handleExcludeClick}
+              title={isForceExcluded() ? "Click again to archive" : "Exclude from context"}
+            >
+              <Icon name="dash" size="small" />
+            </button>
           </div>
         </Show>
         <div data-slot="context-part-icon">
@@ -432,13 +516,15 @@ function FilePartItem(props: {
   const pendingDeletions = usePendingDeletions()
   const isImage = () => props.part.mime.startsWith("image/")
   // Check both local UI exclusion and backend excluded field
-  const isExcluded = () => props.part.excluded || (props.selection?.excluded().has(props.part.id) ?? false)
+  const isExcluded = () => props.part.excluded || (props.selection?.isForceExcluded?.(props.part.id) ?? props.selection?.excluded().has(props.part.id) ?? false)
+  const isForceIncluded = () => props.selection?.isForceIncluded?.(props.part.id) ?? false
+  const isForceExcluded = () => props.selection?.isForceExcluded?.(props.part.id) ?? false
   const isHidden = () => props.selection?.hidden().has(props.part.id) ?? false
   const isCompactSelected = () => props.selection?.compactSelection().has(props.part.id) ?? false
 
-  const handleExcludeToggle = async (e: MouseEvent) => {
+  const handleIncludeClick = async (e: MouseEvent) => {
     e.stopPropagation()
-    // If part has backend exclusion, update via API
+    // If part has backend exclusion, update via API first
     if (props.part.excluded) {
       await sdk.client.part.update({
         sessionID: props.part.sessionID,
@@ -450,8 +536,17 @@ function FilePartItem(props: {
         },
       })
       props.onPartUpdated?.()
+    }
+    props.selection?.setInclude?.(props.part.id)
+  }
+
+  const handleExcludeClick = (e: MouseEvent) => {
+    e.stopPropagation()
+    if (isForceExcluded()) {
+      // Already excluded - trigger archive flow
+      props.selection?.onDoubleExclude?.(props.part.id)
     } else {
-      props.selection?.toggleExcluded(props.part.id)
+      props.selection?.setExclude?.(props.part.id)
     }
   }
 
@@ -476,12 +571,29 @@ function FilePartItem(props: {
         data-component="context-part-item"
         data-type="file"
         data-excluded={isExcluded()}
+        data-force-include={isForceIncluded()}
+        data-force-exclude={isForceExcluded()}
         data-hidden={isHidden()}
         data-compact-selected={isCompactSelected()}
       >
         <Show when={props.selection}>
-          <div data-slot="context-part-checkbox" onClick={handleExcludeToggle}>
-            <Icon name={isExcluded() ? "dash" : "check"} size="small" />
+          <div data-slot="context-part-controls">
+            <button
+              data-slot="context-control-include"
+              data-active={isForceIncluded()}
+              onClick={handleIncludeClick}
+              title="Always include"
+            >
+              <Icon name="plus" size="small" />
+            </button>
+            <button
+              data-slot="context-control-exclude"
+              data-active={isForceExcluded()}
+              onClick={handleExcludeClick}
+              title={isForceExcluded() ? "Click again to archive" : "Exclude from context"}
+            >
+              <Icon name="dash" size="small" />
+            </button>
           </div>
         </Show>
         <div data-slot="context-part-icon">
@@ -646,7 +758,10 @@ export function ContextMessageItem(props: ContextMessageItemProps) {
   )
 
   // Helper to check if a part is excluded (either by backend or local UI)
-  const isPartExcluded = (p: Part) => p.excluded || (props.selection?.excluded().has(p.id) ?? false)
+  const isPartExcluded = (p: Part) => p.excluded || (props.selection?.isForceExcluded?.(p.id) ?? props.selection?.excluded().has(p.id) ?? false)
+
+  // Helper to check if a part is force included
+  const isPartForceIncluded = (p: Part) => props.selection?.isForceIncluded?.(p.id) ?? false
 
   const excludedCount = createMemo(() => {
     return visibleParts().filter((p) => isPartExcluded(p)).length
@@ -681,26 +796,34 @@ export function ContextMessageItem(props: ContextMessageItemProps) {
     return visibleParts().filter((p) => props.selection!.compactSelection().has(p.id)).length
   })
 
-  const handleMessageExcludeToggle = (e: MouseEvent) => {
+  const handleMessageIncludeClick = (e: MouseEvent) => {
+    e.stopPropagation()
+    if (!props.selection) return
+    const parts = selectableParts()
+    if (parts.length === 0) return
+
+    // Include all parts (remove from excluded)
+    for (const p of parts) {
+      props.selection.setInclude?.(p.id)
+    }
+  }
+
+  const handleMessageExcludeClick = (e: MouseEvent) => {
     e.stopPropagation()
     if (!props.selection) return
     const parts = selectableParts()
     if (parts.length === 0) return
 
     if (isMessageExcluded()) {
-      // Include all parts
-      props.selection.setExcluded((prev) => {
-        const next = new Set(prev)
-        for (const p of parts) next.delete(p.id)
-        return next
-      })
+      // Already excluded - this is a double-minus, trigger archive for all
+      for (const p of parts) {
+        props.selection.onDoubleExclude?.(p.id)
+      }
     } else {
       // Exclude all parts
-      props.selection.setExcluded((prev) => {
-        const next = new Set(prev)
-        for (const p of parts) next.add(p.id)
-        return next
-      })
+      for (const p of parts) {
+        props.selection.setExclude?.(p.id)
+      }
     }
   }
 
@@ -781,8 +904,23 @@ export function ContextMessageItem(props: ContextMessageItemProps) {
         <Collapsible.Trigger>
           <div data-slot="context-message-header">
             <Show when={props.selection && selectableParts().length > 0}>
-              <div data-slot="context-message-checkbox" onClick={handleMessageExcludeToggle}>
-                <Icon name={isMessageExcluded() ? "dash" : "check"} size="small" />
+              <div data-slot="context-message-controls">
+                <button
+                  data-slot="context-control-include"
+                  data-active={false}
+                  onClick={handleMessageIncludeClick}
+                  title="Include all parts"
+                >
+                  <Icon name="plus" size="small" />
+                </button>
+                <button
+                  data-slot="context-control-exclude"
+                  data-active={isMessageExcluded()}
+                  onClick={handleMessageExcludeClick}
+                  title={isMessageExcluded() ? "Click again to archive all" : "Exclude all parts"}
+                >
+                  <Icon name="dash" size="small" />
+                </button>
               </div>
             </Show>
             <div data-slot="context-message-role">

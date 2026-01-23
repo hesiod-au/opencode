@@ -446,7 +446,7 @@
   }
 }
 
-/* Selection Checkbox */
+/* Selection Checkbox (legacy) */
 [data-slot="context-part-checkbox"],
 [data-slot="item-checkbox"] {
   flex-shrink: 0;
@@ -460,6 +460,82 @@
 
   &:hover {
     color: var(--icon-base);
+  }
+}
+
+/* Three-State Controls (+/-) */
+[data-slot="context-part-controls"],
+[data-slot="context-message-controls"] {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+[data-slot="context-control-include"],
+[data-slot="context-control-exclude"] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-weaker-base);
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--icon-weak);
+  transition: all 0.1s ease;
+
+  &:hover {
+    color: var(--icon-base);
+    border-color: var(--border-base);
+  }
+}
+
+[data-slot="context-control-include"] {
+  &:hover {
+    color: var(--syntax-success);
+    border-color: var(--syntax-success);
+    background: color-mix(in srgb, var(--syntax-success) 10%, transparent);
+  }
+
+  &[data-active="true"] {
+    color: var(--syntax-success);
+    border-color: var(--syntax-success);
+    background: color-mix(in srgb, var(--syntax-success) 15%, transparent);
+  }
+}
+
+[data-slot="context-control-exclude"] {
+  &:hover {
+    color: var(--syntax-error);
+    border-color: var(--syntax-error);
+    background: color-mix(in srgb, var(--syntax-error) 10%, transparent);
+  }
+
+  &[data-active="true"] {
+    color: var(--syntax-error);
+    border-color: var(--syntax-error);
+    background: color-mix(in srgb, var(--syntax-error) 15%, transparent);
+  }
+}
+
+/* Force Include State */
+[data-component="context-part-item"][data-force-include="true"] {
+  border-left: 2px solid var(--syntax-success);
+  padding-left: 6px;
+  margin-left: -2px;
+  background: color-mix(in srgb, var(--syntax-success) 5%, transparent);
+}
+
+/* Force Exclude State */
+[data-component="context-part-item"][data-force-exclude="true"] {
+  opacity: 0.5;
+
+  [data-slot="context-part-content"] {
+    text-decoration: line-through;
+    text-decoration-color: var(--text-weak);
   }
 }
 
@@ -1925,6 +2001,83 @@
     &:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+  }
+}
+
+/* Confirm Archive Dialog */
+[data-component="confirm-archive-dialog"] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  min-width: 350px;
+  max-width: 450px;
+  text-align: center;
+
+  [data-slot="confirm-archive-icon"] {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--syntax-warning) 15%, transparent);
+    border-radius: 50%;
+    color: var(--syntax-warning);
+  }
+
+  [data-slot="confirm-archive-content"] {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  [data-slot="confirm-archive-description"] {
+    font-size: var(--font-size-base);
+    color: var(--text-strong);
+    margin: 0;
+  }
+
+  [data-slot="confirm-archive-actions"] {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding-top: 8px;
+  }
+
+  [data-slot="confirm-archive-cancel"] {
+    flex: 1;
+    padding: 10px 16px;
+    background: var(--surface-base);
+    border: 1px solid var(--border-base);
+    border-radius: 6px;
+    font-size: var(--font-size-small);
+    font-weight: var(--font-weight-medium);
+    color: var(--text-base);
+    cursor: pointer;
+    transition: all 0.15s ease;
+
+    &:hover {
+      background: var(--surface-base-hover);
+      border-color: var(--border-strong);
+    }
+  }
+
+  [data-slot="confirm-archive-confirm"] {
+    flex: 1;
+    padding: 10px 16px;
+    background: var(--syntax-warning);
+    border: none;
+    border-radius: 6px;
+    font-size: var(--font-size-small);
+    font-weight: var(--font-weight-medium);
+    color: white;
+    cursor: pointer;
+    transition: all 0.15s ease;
+
+    &:hover {
+      filter: brightness(1.1);
     }
   }
 }

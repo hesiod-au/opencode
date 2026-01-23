@@ -19,7 +19,10 @@ import { ContextGroupedView } from "./context-grouped-view"
 import { PendingDeletionsProvider, usePendingDeletions } from "./use-pending-deletions"
 import { useContextSnapshots, type ContextSnapshot } from "./use-context-snapshots"
 import { useLoadedSnapshot } from "./use-loaded-snapshot"
+import { useArchive } from "./use-archive"
+import { useCanonicalContext } from "./use-canonical-context"
 import { DialogSaveSnapshot } from "./dialog-save-snapshot"
+import { Dialog } from "@opencode-ai/ui/dialog"
 import { DialogLoadSnapshot } from "./dialog-load-snapshot"
 import { DialogDeleteAllContext } from "./dialog-delete-all-context"
 import { DialogSnapshotsList } from "./dialog-snapshots-list"
@@ -27,19 +30,41 @@ import { DialogCustomCompaction } from "./dialog-custom-compaction"
 
 type ViewMode = "chronological" | "grouped" | "raw"
 
+export type ItemState = "neutral" | "force_include" | "force_exclude"
+
 export interface SelectionState {
+  // Legacy: still used internally
   excluded: Accessor<Set<string>>
   setExcluded: Setter<Set<string>>
+
+  // Three-state accessors
+  getItemState: (partId: string) => ItemState
+  isForceIncluded: (partId: string) => boolean
+  isForceExcluded: (partId: string) => boolean
+
+  // Three-state mutations
+  setInclude: (partId: string) => void
+  setExclude: (partId: string) => void
+
+  // Legacy toggle (still used internally)
+  toggleExcluded: (partId: string) => void
+
+  // Archive callback for double-minus
+  onDoubleExclude?: (partId: string) => void
+
+  // Hidden state (local UI only)
   hidden: Accessor<Set<string>>
   setHidden: Setter<Set<string>>
   showHidden: Accessor<boolean>
   setShowHidden: Setter<boolean>
-  toggleExcluded: (partId: string) => void
   toggleHidden: (partId: string) => void
+
+  // Bulk operations
   excludeAll: () => void
   includeAll: () => void
   hideAll: () => void
   showAll: () => void
+
   // Compaction selection - separate from exclusion
   compactSelection: Accessor<Set<string>>
   toggleCompactSelection: (partId: string) => void
@@ -60,6 +85,8 @@ export function SessionContextTab(props: SessionContextTabProps) {
   const dialog = useDialog()
   const snapshots = useContextSnapshots()
   const loadedSnapshotCtx = useLoadedSnapshot()
+  const archive = useArchive(sdk.directory)
+  const canonicalContext = useCanonicalContext()
   const [viewMode, setViewMode] = createSignal<ViewMode>("chronological")
 
   // Get messages - use snapshot data if loaded, otherwise use live data
@@ -72,12 +99,35 @@ export function SessionContextTab(props: SessionContextTabProps) {
   }
 
   // Get parts - use snapshot data if loaded, otherwise use live data
+  // Also merge excluded content from canonical context
   const getParts = (messageId: string): Part[] => {
     const snapshot = loadedSnapshotCtx.snapshot()
     if (snapshot) {
       return snapshot.parts[messageId] ?? []
     }
-    return (sync.data.part[messageId] ?? []) as Part[]
+
+    const serverParts = (sync.data.part[messageId] ?? []) as Part[]
+
+    // Merge excluded parts from canonical context
+    const excluded = canonicalContext.getExcludedContent()
+    const excludedParts = excluded.parts[messageId]
+    if (!excludedParts || excludedParts.length === 0) {
+      return serverParts
+    }
+
+    // Build set of server part IDs
+    const serverPartIds = new Set(serverParts.map((p) => p.id))
+
+    // Add excluded parts that aren't on server
+    const missingParts = excludedParts.filter((p) => !serverPartIds.has(p.id))
+    if (missingParts.length === 0) {
+      return serverParts
+    }
+
+    // Merge and sort by ID
+    const merged = [...serverParts, ...missingParts]
+    merged.sort((a, b) => (a.id > b.id ? 1 : -1))
+    return merged
   }
 
   const clearLoadedSnapshot = () => {
@@ -87,8 +137,15 @@ export function SessionContextTab(props: SessionContextTabProps) {
   }
 
   // Selection/exclusion state management
-  // Exclusions use shared context (affects prompt submission)
-  const excluded = loadedSnapshotCtx.excluded
+  // Exclusions now use canonical context for three-state persistence
+  // Also keep loadedSnapshotCtx.excluded for backward compatibility with snapshots
+  const excluded = createMemo(() => {
+    // Combine canonical context exclusions with snapshot exclusions
+    const canonicalExclusions = canonicalContext.getEffectiveExclusions()
+    const snapshotExclusions = loadedSnapshotCtx.excluded()
+    const combined = new Set([...canonicalExclusions, ...snapshotExclusions])
+    return combined
+  })
   const setExcluded = loadedSnapshotCtx.setExcluded
   // Hidden is local UI state only
   const [hidden, setHidden] = createSignal<Set<string>>(new Set())
@@ -97,11 +154,12 @@ export function SessionContextTab(props: SessionContextTabProps) {
   const [compactSelection, setCompactSelection] = createSignal<Set<string>>(new Set())
 
   const toggleExcluded = (partId: string) => {
-    const prev = excluded()
-    const next = new Set(prev)
-    if (next.has(partId)) next.delete(partId)
-    else next.add(partId)
-    setExcluded(next)
+    // Use canonical context for toggle
+    if (canonicalContext.isForceExcluded(partId)) {
+      canonicalContext.setInclude(partId)
+    } else {
+      canonicalContext.setExclude(partId)
+    }
   }
 
   const toggleHidden = (partId: string) => {
@@ -135,19 +193,113 @@ export function SessionContextTab(props: SessionContextTabProps) {
     return ids
   }
 
-  const excludeAll = () => setExcluded(new Set<string>(getAllPartIds()))
-  const includeAll = () => setExcluded(new Set<string>())
+  const excludeAll = () => {
+    for (const id of getAllPartIds()) {
+      canonicalContext.setExclude(id)
+    }
+  }
+  const includeAll = () => {
+    canonicalContext.resetAll()
+    setExcluded(new Set<string>())
+  }
   const hideAll = () => setHidden(new Set<string>(getAllPartIds()))
   const showAll = () => setHidden(new Set<string>())
+
+  // Three-state accessors - delegate to canonical context
+  const getItemState = (partId: string): ItemState => {
+    return canonicalContext.getState(partId)
+  }
+
+  const isForceIncluded = (partId: string): boolean => {
+    return canonicalContext.isForceIncluded(partId)
+  }
+
+  const isForceExcluded = (partId: string): boolean => {
+    return canonicalContext.isForceExcluded(partId)
+  }
+
+  // Three-state mutations - delegate to canonical context
+  const setInclude = (partId: string) => {
+    canonicalContext.setInclude(partId)
+  }
+
+  const setExclude = (partId: string) => {
+    canonicalContext.setExclude(partId)
+  }
+
+  // Double-minus archive flow - when clicking exclude on an already excluded item
+  const handleDoubleExclude = (partId: string) => {
+    // Find the part and its message
+    let foundPart: Part | undefined
+    let foundMessage: Message | undefined
+
+    for (const msg of getMessages()) {
+      const parts = getParts(msg.id)
+      const part = parts.find((p) => p.id === partId)
+      if (part) {
+        foundPart = part
+        foundMessage = msg
+        break
+      }
+    }
+
+    if (!foundPart || !foundMessage) return
+
+    const sessionInfo = props.info()
+
+    const handleArchive = () => {
+      // Add to archive
+      archive.addManyToArchive([
+        {
+          part: foundPart!,
+          message: foundMessage!,
+          sessionId: sessionID(),
+          sessionName: sessionInfo?.title,
+        },
+      ])
+      // Hide the item from the context list (it's now archived)
+      setHidden((prev) => new Set([...prev, partId]))
+      dialog.close()
+    }
+
+    dialog.show(() => (
+      <Dialog title="Archive Item">
+        <div data-component="confirm-archive-dialog">
+          <div data-slot="confirm-archive-icon">
+            <Icon name="archive" size="large" />
+          </div>
+          <div data-slot="confirm-archive-content">
+            <p data-slot="confirm-archive-description">
+              Archive this item? It will be removed from context and saved to your archive for future reference.
+            </p>
+          </div>
+          <div data-slot="confirm-archive-actions">
+            <button data-slot="confirm-archive-cancel" onClick={() => dialog.close()}>
+              Cancel
+            </button>
+            <button data-slot="confirm-archive-confirm" onClick={handleArchive}>
+              Archive
+            </button>
+          </div>
+        </div>
+      </Dialog>
+    ))
+  }
 
   const selection: SelectionState = {
     excluded,
     setExcluded,
+    getItemState,
+    isForceIncluded,
+    isForceExcluded,
+    setInclude,
+    setExclude,
+    toggleExcluded,
+    onDoubleExclude: handleDoubleExclude,
     hidden,
     setHidden,
     showHidden,
     setShowHidden,
-    toggleExcluded,
     toggleHidden,
     excludeAll,
     includeAll,

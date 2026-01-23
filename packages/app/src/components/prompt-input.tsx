@@ -55,7 +55,7 @@ import { createOpencodeClient, type Message, type Part } from "@opencode-ai/sdk/
 import { Binary } from "@opencode-ai/util/binary"
 import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode } from "@opencode-ai/util/encode"
-import { useLoadedSnapshot, useArchive } from "@/components/session"
+import { useLoadedSnapshot, useArchive, useCanonicalContextMaybe } from "@/components/session"
 
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"]
 const ACCEPTED_FILE_TYPES = [...ACCEPTED_IMAGE_TYPES, "application/pdf"]
@@ -121,6 +121,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const permission = usePermission()
   const loadedSnapshotCtx = useLoadedSnapshot()
   const archive = useArchive(sdk.directory)
+  // Get canonical context if available (only inside session pages with existing session)
+  const canonicalContext = useCanonicalContextMaybe()
   let editorRef!: HTMLDivElement
   let fileInputRef!: HTMLInputElement
   let scrollRef!: HTMLDivElement
@@ -1286,9 +1288,58 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     }
 
     // Build messages override for snapshots/exclusions/edits
-    const liveMessages = sync.data.message[session.id] ?? []
-    const liveParts = sync.data.part
-    const messagesOverride = loadedSnapshotCtx.getMessagesForPrompt(liveMessages, liveParts)
+    // Merge server data with excludedContent (for items that were excluded but may be re-included)
+    const serverMessages = sync.data.message[session.id] ?? []
+    const serverParts = sync.data.part
+    const excludedContent = canonicalContext?.getExcludedContent()
+
+    // Merge excluded messages back into liveMessages (they may have been un-excluded)
+    let liveMessages = serverMessages
+    let liveParts = serverParts
+    if (excludedContent && Object.keys(excludedContent.messages).length > 0) {
+      const serverMsgIds = new Set(serverMessages.map((m) => m.id))
+      const excludedMsgs = Object.values(excludedContent.messages).filter((m) => !serverMsgIds.has(m.id))
+      if (excludedMsgs.length > 0) {
+        liveMessages = [...serverMessages, ...excludedMsgs].sort((a, b) => (a.id > b.id ? 1 : -1))
+      }
+      // Merge excluded parts
+      const mergedParts = { ...serverParts }
+      for (const [msgId, parts] of Object.entries(excludedContent.parts)) {
+        const serverPartsForMsg = serverParts[msgId] ?? []
+        const serverPartIds = new Set(serverPartsForMsg.map((p) => p.id))
+        const missingParts = parts.filter((p) => !serverPartIds.has(p.id))
+        if (missingParts.length > 0) {
+          mergedParts[msgId] = [...serverPartsForMsg, ...missingParts].sort((a, b) => (a.id > b.id ? 1 : -1))
+        }
+      }
+      liveParts = mergedParts
+    }
+
+    // Get canonical context exclusions if available
+    // Note: force inclusions don't affect submission - they only prevent auto-exclusion during server merge
+    const canonicalExclusions = canonicalContext?.getEffectiveExclusions()
+
+    // Determine if we need an override:
+    // - If there are exclusions, OR
+    // - If there's excludedContent (previously excluded items that may need to be re-included)
+    const hasExcludedContent = excludedContent && Object.keys(excludedContent.messages).length > 0
+
+    // Debug: log exclusions
+    console.log("[prompt-input] Submission debug:", {
+      hasCanonicalContext: !!canonicalContext,
+      canonicalExclusionsSize: canonicalExclusions?.size ?? 0,
+      canonicalExclusions: canonicalExclusions ? Array.from(canonicalExclusions) : [],
+      snapshotExclusionsSize: loadedSnapshotCtx.excluded().size,
+      hasExcludedContent,
+    })
+
+    const messagesOverride = loadedSnapshotCtx.getMessagesForPrompt(
+      liveMessages,
+      liveParts,
+      undefined, // forceInclusions not used for submission
+      canonicalExclusions,
+      hasExcludedContent, // Force override if we have excluded content
+    )
 
     // If we have a messages override, create a new session (fresh submission with custom context)
     let targetSession = session
@@ -1323,6 +1374,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           archive.addManyToArchive(toArchive)
         }
       }
+
+      // Store excluded content so it can be displayed in the new session
+      canonicalContext?.storeExcludedContent(liveMessages, liveParts)
+      // Copy canonical context (including excluded content) to the new session
+      canonicalContext?.copyToSession(newSession.id)
 
       // Clear the snapshot and navigate to new session
       // The server has stored the messages, so they'll appear via sync

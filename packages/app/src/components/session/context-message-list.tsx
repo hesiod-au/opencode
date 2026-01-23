@@ -12,11 +12,25 @@ export interface ContextMessageListProps {
 }
 
 export function ContextMessageList(props: ContextMessageListProps) {
-  const messageCount = createMemo(() => props.messages().length)
+  // Filter messages to only show those with visible parts
+  const visibleMessages = createMemo(() => {
+    const hidden = props.selection?.hidden() ?? new Set()
+    const showHidden = props.selection?.showHidden() ?? false
 
-  const userCount = createMemo(() => props.messages().filter((m) => m.role === "user").length)
+    return props.messages().filter((msg) => {
+      const parts = props.getParts(msg.id)
+      // If showHidden is true, show all messages that have any parts
+      if (showHidden) return parts.length > 0
+      // Otherwise, only show messages that have at least one non-hidden part
+      return parts.some((part) => !hidden.has(part.id))
+    })
+  })
 
-  const assistantCount = createMemo(() => props.messages().filter((m) => m.role === "assistant").length)
+  const messageCount = createMemo(() => visibleMessages().length)
+
+  const userCount = createMemo(() => visibleMessages().filter((m) => m.role === "user").length)
+
+  const assistantCount = createMemo(() => visibleMessages().filter((m) => m.role === "assistant").length)
 
   return (
     <div data-component="context-message-list">
@@ -26,7 +40,7 @@ export function ContextMessageList(props: ContextMessageListProps) {
           {messageCount()} total ({userCount()} user, {assistantCount()} assistant)
         </span>
       </div>
-      <For each={props.messages()}>
+      <For each={visibleMessages()}>
         {(message) => (
           <ContextMessageItem
             message={message}
