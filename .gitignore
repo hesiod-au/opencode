@@ -29,3 +29,5 @@ logs/
 
 .claude/
 wip_docs/
+
+.opencode/

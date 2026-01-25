@@ -412,11 +412,13 @@ export namespace SessionPrompt {
 
       step++
       if (step === 1)
-        ensureTitle({
+        void ensureTitle({
           session,
           modelID: lastUser.model.modelID,
           providerID: lastUser.model.providerID,
           history: msgs,
+        }).catch((error) => {
+          log.error("failed to ensure title", { error, sessionID })
         })
 
       const model = await Provider.getModel(lastUser.model.providerID, lastUser.model.modelID)
@@ -1885,18 +1887,50 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           : MessageV2.toModelMessage(contextMessages)),
       ],
     })
-    const text = await result.text.catch((err) => log.error("failed to generate title", { error: err }))
-    if (text)
-      return Session.update(input.session.id, (draft) => {
-        const cleaned = text
-          .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
-          .split("\n")
-          .map((line) => line.trim())
-          .find((line) => line.length > 0)
-        if (!cleaned) return
 
-        const title = cleaned.length > 100 ? cleaned.substring(0, 97) + "..." : cleaned
-        draft.title = title
-      })
+    const text = await iife(async () => {
+      const output = typeof result.text === "function" ? result.text() : result.text
+      return await output
+    }).catch((error) => {
+      log.error("failed to generate title", { error })
+      return undefined
+    })
+
+    const shorten = (value: string) => (value.length > 100 ? value.substring(0, 97) + "..." : value)
+
+    const cleaned = iife(() => {
+      if (typeof text !== "string") return
+      const line = text
+        .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
+        .split("\n")
+        .map((entry) => entry.trim())
+        .find((entry) => entry.length > 0)
+      if (!line) return
+      return shorten(line)
+    })
+
+    const fallback = iife(() => {
+      const subtaskPrompt = subtaskParts
+        .map((part) => part.prompt)
+        .join("\n")
+        .trim()
+      if (subtaskPrompt) return shorten(subtaskPrompt)
+      const textParts = firstRealUser.parts.filter(
+        (part): part is MessageV2.TextPart =>
+          part.type === "text" && !("synthetic" in part && part.synthetic) && part.text.trim(),
+      )
+      const content = textParts
+        .map((part) => part.text.trim())
+        .join("\n")
+        .trim()
+      if (!content) return
+      return shorten(content)
+    })
+
+    const title = cleaned ?? fallback
+    if (!title) return
+    return Session.update(input.session.id, (draft) => {
+      draft.title = title
+    })
   }
 }
