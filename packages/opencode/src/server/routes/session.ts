@@ -16,6 +16,7 @@ import { Log } from "../../util/log"
 import { PermissionNext } from "@/permission/next"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { Config } from "../../config/config"
 
 const log = Log.create({ service: "server" })
 
@@ -905,6 +906,51 @@ export const SessionRoutes = lazy(() =>
             hasMessages: "messages" in body,
             messagesCount: body.messages?.length ?? 0,
           })
+
+          // Check if task mode is enabled - if so, route to task mode
+          const config = await Config.get()
+          if (config.taskMode?.enabled) {
+            const { Orchestrator } = await import("../../task-mode/orchestrator")
+
+            // Only start orchestrator if not already running
+            if (!Orchestrator.isRunning()) {
+              log.info("task mode enabled, starting orchestrator", { sessionID })
+
+              // Extract the user's prompt text from parts
+              const userPrompt = body.parts
+                .filter((p): p is { type: "text"; text: string } => p.type === "text")
+                .map((p) => p.text)
+                .join("\n")
+
+              // Start orchestrator with this session as parent and the user's prompt
+              await Orchestrator.start({
+                parentSessionId: sessionID,
+                userPrompt,
+              })
+
+              // Return a message indicating task mode is engaging
+              const msg = {
+                info: {
+                  id: "task-mode-active",
+                  sessionID,
+                  role: "assistant" as const,
+                  time: new Date(),
+                },
+                parts: [
+                  {
+                    type: "text" as const,
+                    text: "Task mode is active. The planning agent is analyzing your request and generating a task breakdown. Check the Tasks tab for progress.",
+                  },
+                ],
+              }
+              stream.write(JSON.stringify(msg))
+              return
+            } else {
+              log.info("task mode enabled but orchestrator already running, passing through to normal prompt", { sessionID })
+              // Fall through to normal prompt processing
+            }
+          }
+
           const msg = await SessionPrompt.prompt({ ...body, sessionID })
           stream.write(JSON.stringify(msg))
         })

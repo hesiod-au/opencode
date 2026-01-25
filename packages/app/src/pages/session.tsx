@@ -46,6 +46,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import {
   SessionHeader,
   SessionContextTab,
+  SessionTasksTab,
   SortableTab,
   FileVisual,
   SortableTerminalTab,
@@ -843,17 +844,18 @@ function PageContent() {
   }
 
   const contextOpen = createMemo(() => tabs().active() === "context" || tabs().all().includes("context"))
+  const tasksOpen = createMemo(() => tabs().active() === "tasks" || tabs().all().includes("tasks"))
   const openedTabs = createMemo(() =>
     tabs()
       .all()
-      .filter((tab) => tab !== "context"),
+      .filter((tab) => tab !== "context" && tab !== "tasks"),
   )
 
   const reviewTab = createMemo(() => hasReview() || tabs().active() === "review")
   const mobileReview = createMemo(() => !isDesktop() && hasReview() && store.mobileTab === "review")
 
   const showTabs = createMemo(
-    () => view().reviewPanel.opened() && (hasReview() || tabs().all().length > 0 || contextOpen()),
+    () => view().reviewPanel.opened() && (hasReview() || tabs().all().length > 0 || contextOpen() || tasksOpen()),
   )
 
   const activeTab = createMemo(() => {
@@ -864,13 +866,14 @@ function PageContent() {
     const first = openedTabs()[0]
     if (first) return first
     if (contextOpen()) return "context"
+    if (tasksOpen()) return "tasks"
     return "review"
   })
 
   createEffect(() => {
     if (!layout.ready()) return
     if (tabs().active()) return
-    if (!hasReview() && openedTabs().length === 0 && !contextOpen()) return
+    if (!hasReview() && openedTabs().length === 0 && !contextOpen() && !tasksOpen()) return
     tabs().setActive(activeTab())
   })
 
@@ -1446,6 +1449,23 @@ function PageContent() {
                         </div>
                       </Tabs.Trigger>
                     </Show>
+                    <Show when={tasksOpen()}>
+                      <Tabs.Trigger
+                        value="tasks"
+                        closeButton={
+                          <Tooltip value="Close tab" placement="bottom">
+                            <IconButton icon="close" variant="ghost" onClick={() => tabs().close("tasks")} />
+                          </Tooltip>
+                        }
+                        hideCloseButton
+                        onMiddleClick={() => tabs().close("tasks")}
+                      >
+                        <div class="flex items-center gap-2">
+                          <Icon name="checklist" size="small" />
+                          <div>Tasks</div>
+                        </div>
+                      </Tabs.Trigger>
+                    </Show>
                     <SortableProvider ids={openedTabs()}>
                       <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
                     </SortableProvider>
@@ -1499,6 +1519,15 @@ function PageContent() {
                           view={view}
                           info={info}
                         />
+                      </div>
+                    </Show>
+                  </Tabs.Content>
+                </Show>
+                <Show when={tasksOpen()}>
+                  <Tabs.Content value="tasks" class="flex flex-col h-full overflow-hidden contain-strict">
+                    <Show when={activeTab() === "tasks"}>
+                      <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
+                        <SessionTasksTab />
                       </div>
                     </Show>
                   </Tabs.Content>

@@ -1,0 +1,334 @@
+import { Log } from "../util/log"
+import { Session } from "../session"
+import { SessionPrompt } from "../session/prompt"
+import { Identifier } from "../id/id"
+import { Bus } from "../bus"
+import { Agent } from "../agent/agent"
+import { TaskList } from "./task-list"
+import { TaskFile } from "./task-file"
+import { TaskModeEvent } from "./events"
+
+export namespace TestWriterAgent {
+  const log = Log.create({ service: "test-writer-agent" })
+
+  async function logToParent(parentSessionId: string | undefined, text: string): Promise<void> {
+    if (!parentSessionId) {
+      log.warn("logToParent called but no parentSessionId", { text: text.slice(0, 50) })
+      return
+    }
+
+    try {
+      const messageID = Identifier.ascending("message")
+      const partID = Identifier.ascending("part")
+
+      await Session.updateMessage({
+        id: messageID,
+        sessionID: parentSessionId,
+        role: "user",
+        time: { created: Date.now() },
+        agent: "test-writer",
+        model: { providerID: "system", modelID: "test-writer-agent" },
+      })
+
+      await Session.updatePart({
+        id: partID,
+        sessionID: parentSessionId,
+        messageID,
+        type: "text",
+        text,
+      })
+
+      log.info("logToParent: message created successfully", { messageID })
+    } catch (err) {
+      log.error("logToParent failed", { error: err, text: text.slice(0, 50) })
+    }
+  }
+
+  export interface TestWriterOptions {
+    paths: TaskList.Paths
+    parentSessionId?: string
+    planningConversation: string
+  }
+
+  export interface TestWriterResult {
+    success: boolean
+    sessionId: string
+    tasksWithTests: number
+    error?: string
+  }
+
+  export interface TestMapping {
+    taskId: string
+    tests: string[]
+  }
+
+  export async function run(options: TestWriterOptions): Promise<TestWriterResult> {
+    const { paths, parentSessionId, planningConversation } = options
+
+    log.info("starting test-writer agent", { taskListPath: paths.taskListPath })
+
+    // Create a new session for test writing
+    const session = await Session.create({
+      parentID: parentSessionId,
+      title: "Test Writing Session",
+    })
+
+    // Read all tasks
+    const taskList = await TaskList.read(paths.taskListPath)
+    if (!taskList || taskList.tasks.length === 0) {
+      return {
+        success: false,
+        sessionId: session.id,
+        tasksWithTests: 0,
+        error: "No tasks found to write tests for",
+      }
+    }
+
+    // Read task descriptions
+    const taskDescriptions: Array<{ id: string; title: string; description: string }> = []
+    for (const task of taskList.tasks) {
+      const taskFilePath = TaskFile.getFilePath(paths.tasksDir, task.id)
+      const taskFile = await TaskFile.read(taskFilePath)
+      if (taskFile) {
+        taskDescriptions.push({
+          id: task.id,
+          title: task.title,
+          description: taskFile.description,
+        })
+      }
+    }
+
+    Bus.publish(TaskModeEvent.TestWritingStarted, {
+      sessionId: session.id,
+      taskCount: taskDescriptions.length,
+    })
+
+    await logToParent(parentSessionId, `**Starting test writing for ${taskDescriptions.length} tasks...**`)
+
+    try {
+      const agent = await Agent.get("build")
+
+      if (!agent) {
+        throw new Error("Build agent not found")
+      }
+
+      const messageID = Identifier.ascending("message")
+      const prompt = buildTestWriterPrompt(planningConversation, taskDescriptions)
+
+      const model = agent?.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
+
+      const result = await SessionPrompt.prompt({
+        messageID,
+        sessionID: session.id,
+        model: {
+          modelID: model.modelID,
+          providerID: model.providerID,
+        },
+        agent: agent.name,
+        variant: "max",
+        parts: [{ type: "text", text: prompt }],
+      })
+
+      // Parse test mappings from response
+      const responseText = result.parts
+        .filter((p) => p.type === "text")
+        .map((p) => (p as { type: "text"; text: string }).text)
+        .join("\n\n")
+
+      const { taskMappings, e2eTest } = parseTestMappings(responseText)
+
+      // Update task files with test assignments
+      let tasksWithTests = 0
+      for (const mapping of taskMappings) {
+        if (mapping.tests.length > 0) {
+          const taskFilePath = TaskFile.getFilePath(paths.tasksDir, mapping.taskId)
+          const taskFile = await TaskFile.read(taskFilePath)
+          if (taskFile) {
+            await TaskFile.write(taskFilePath, {
+              ...taskFile,
+              tests: mapping.tests,
+            })
+            tasksWithTests++
+            log.info("updated task with tests", { taskId: mapping.taskId, tests: mapping.tests })
+          }
+        }
+      }
+
+      // Save E2E test to task list
+      if (e2eTest) {
+        await TaskList.update(paths.taskListPath, paths.lockPath, (current) => ({
+          ...current,
+          e2eTest,
+        }))
+        log.info("saved E2E test to task list", { e2eTest })
+      }
+
+      Bus.publish(TaskModeEvent.TestWritingCompleted, {
+        sessionId: session.id,
+        tasksWithTests,
+      })
+
+      const testSummary = taskMappings
+        .filter((m) => m.tests.length > 0)
+        .map((m) => `- **${m.taskId}**: ${m.tests.join(", ")}`)
+        .join("\n")
+
+      const e2eSummary = e2eTest ? `\n\n**E2E Test:** ${e2eTest}` : ""
+
+      await logToParent(
+        parentSessionId,
+        `**Test writing completed** \n\nAssigned tests to ${tasksWithTests} tasks:\n\n${testSummary || "No test mappings found."}${e2eSummary}`,
+      )
+
+      log.info("test writing completed", {
+        sessionId: session.id,
+        tasksWithTests,
+        e2eTest,
+        mappings: taskMappings,
+      })
+
+      return {
+        success: true,
+        sessionId: session.id,
+        tasksWithTests,
+      }
+    } catch (err: any) {
+      log.error("test writing failed", { error: err })
+
+      await logToParent(parentSessionId, `**Test writing failed:** ${err.message || String(err)}`)
+
+      return {
+        success: false,
+        sessionId: session.id,
+        tasksWithTests: 0,
+        error: err.message || String(err),
+      }
+    }
+  }
+
+  export function buildTestWriterPrompt(
+    planningConversation: string,
+    tasks: Array<{ id: string; title: string; description: string }>,
+  ): string {
+    const taskList = tasks
+      .map(
+        (t) => `### Task ${t.id}: ${t.title}
+
+${t.description}`,
+      )
+      .join("\n\n")
+
+    return `You are a test-driven development (TDD) agent. Your job is to write tests for a planned feature before implementation begins.
+
+## Planning Context
+
+The following conversation led to this task breakdown:
+
+${planningConversation}
+
+## Tasks to Write Tests For
+
+${taskList}
+
+## Instructions
+
+1. Analyze the tasks and understand what each one needs to accomplish
+2. For each task, write one or more test functions that will verify the task was completed correctly
+3. Create test files following the project's testing conventions (look for existing test files for patterns)
+4. Use descriptive test names that clearly indicate what is being tested
+5. **IMPORTANT: Create a final end-to-end (E2E) test** that verifies the entire feature works as a whole
+
+After writing the tests, output a mapping of task IDs to test function names in this exact format:
+
+\`\`\`test-mapping
+001: test_function_name_1, test_function_name_2
+002: test_another_feature
+003: test_integration_works
+e2e: test_complete_feature_e2e
+\`\`\`
+
+**The \`e2e:\` line is required** - it specifies the end-to-end test that validates the entire feature works together.
+
+## Guidelines
+
+- Tests should be specific enough to verify the task's requirements
+- Tests should be written to FAIL initially (since implementation hasn't started)
+- Use the project's existing test framework (look for package.json, pytest.ini, etc.)
+- Test names should be descriptive: \`test_user_can_login_with_valid_credentials\` not \`test_login\`
+- Include both unit tests and integration tests where appropriate
+- The E2E test should exercise the complete user workflow from start to finish
+- The E2E test should be comprehensive enough to catch integration issues between tasks
+
+Now, write the tests and provide the test mapping.
+`
+  }
+
+  export interface ParsedTestMappings {
+    taskMappings: TestMapping[]
+    e2eTest?: string
+  }
+
+  export function parseTestMappings(response: string): ParsedTestMappings {
+    const taskMappings: TestMapping[] = []
+    let e2eTest: string | undefined
+
+    // Look for the test-mapping code block
+    const mappingMatch = response.match(/```test-mapping\n([\s\S]*?)```/)
+
+    if (mappingMatch) {
+      const mappingContent = mappingMatch[1]
+      const lines = mappingContent.split("\n").filter((l) => l.trim())
+
+      for (const line of lines) {
+        // Check for e2e test line
+        const e2eMatch = line.match(/^e2e:\s*(.+)$/)
+        if (e2eMatch) {
+          e2eTest = e2eMatch[1].trim()
+          continue
+        }
+
+        // Check for task mapping line
+        const match = line.match(/^(\d+):\s*(.+)$/)
+        if (match) {
+          const taskId = match[1]
+          const tests = match[2]
+            .split(",")
+            .map((t) => t.trim())
+            .filter((t) => t.length > 0)
+
+          taskMappings.push({ taskId, tests })
+        }
+      }
+    }
+
+    return { taskMappings, e2eTest }
+  }
+
+  export async function buildPlanningConversationText(sessionId: string): Promise<string> {
+    const messages = await Session.messages({ sessionID: sessionId, includeCompacted: false })
+    const lines: string[] = []
+
+    for (const msg of messages) {
+      if (msg.info.role === "user") {
+        const textParts = msg.parts
+          .filter((p) => p.type === "text" && !("synthetic" in p && p.synthetic))
+          .map((p) => (p as { type: "text"; text: string }).text)
+          .join("\n")
+        if (textParts.trim()) {
+          lines.push(`User: ${textParts.trim()}`)
+        }
+      } else if (msg.info.role === "assistant") {
+        const textParts = msg.parts
+          .filter((p) => p.type === "text")
+          .map((p) => (p as { type: "text"; text: string }).text)
+          .join("\n")
+        if (textParts.trim()) {
+          const truncated = textParts.length > 1000 ? textParts.slice(0, 1000) + "..." : textParts
+          lines.push(`Assistant: ${truncated.trim()}`)
+        }
+      }
+    }
+
+    return lines.join("\n\n")
+  }
+}

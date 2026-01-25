@@ -1028,6 +1028,22 @@ export namespace Config {
           prune: z.boolean().optional().describe("Enable pruning of old tool outputs (default: true)"),
         })
         .optional(),
+      taskMode: z
+        .object({
+          enabled: z.boolean().optional().describe("Enable task mode for multi-agent orchestration"),
+          listPath: z.string().optional().describe("Path to the task list markdown file (default: .opencode/tasks/default/task_list.md)"),
+          requirePlanConfirmation: z
+            .boolean()
+            .optional()
+            .describe("Require user confirmation before executing generated plans"),
+          agentLaunchStaggerSeconds: z.number().optional().describe("Seconds to wait between launching task agents (default: 5)"),
+          pollIntervalMs: z.number().optional().describe("Milliseconds between polling for task list changes (default: 1000)"),
+          maxConcurrentTasks: z.number().optional().describe("Maximum number of task agents to run concurrently (default: 3)"),
+          tddMode: z.boolean().optional().describe("Enable TDD mode: write tests after planning, run tests before completing tasks"),
+          maxTestRetries: z.number().optional().describe("Maximum test/fix iterations before failing a task in TDD mode (default: 10)"),
+        })
+        .optional()
+        .describe("Task mode configuration for multi-agent orchestration"),
       experimental: z
         .object({
           hook: z
@@ -1238,7 +1254,8 @@ export namespace Config {
   }
 
   export async function update(config: Info) {
-    const filepath = path.join(Instance.directory, "config.json")
+    // Write to opencode.json to match config loading which looks for opencode.json/opencode.jsonc
+    const filepath = path.join(Instance.directory, "opencode.json")
     const existing = await loadFile(filepath)
     await Bun.write(filepath, JSON.stringify(mergeDeep(existing, config), null, 2))
     await Instance.dispose()

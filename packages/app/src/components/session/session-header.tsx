@@ -55,6 +55,12 @@ export function SessionHeader() {
     tabs().setActive("context")
   }
 
+  const openTasks = () => {
+    view().reviewPanel.open()
+    tabs().open("tasks")
+    tabs().setActive("tasks")
+  }
+
   const openSnippets = () => {
     if (!params.id) return
     dialog.show(() => <DialogSnippetsPicker sessionID={params.id!} />)
@@ -117,6 +123,12 @@ export function SessionHeader() {
               {/*   <SessionMcpIndicator /> */}
               {/* </div> */}
               <div class="flex items-center gap-1">
+                {/* Tasks button always visible - doesn't require session */}
+                <Tooltip value="Tasks" placement="bottom" class="hidden md:block shrink-0">
+                  <Button variant="ghost" class="size-6 p-0" onClick={openTasks}>
+                    <Icon name="checklist" size="small" class="icon-base" />
+                  </Button>
+                </Tooltip>
                 <Show when={params.id}>
                   <Tooltip value="View context" placement="bottom" class="hidden md:block shrink-0">
                     <Button variant="ghost" class="size-6 p-0" onClick={openContext}>
