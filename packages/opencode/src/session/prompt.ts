@@ -1888,10 +1888,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       ],
     })
 
-    const text = await iife(async () => {
-      const output = typeof result.text === "function" ? result.text() : result.text
-      return await output
-    }).catch((error) => {
+    const text = await result.text.catch((error) => {
       log.error("failed to generate title", { error })
       return undefined
     })
@@ -1917,7 +1914,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       if (subtaskPrompt) return shorten(subtaskPrompt)
       const textParts = firstRealUser.parts.filter(
         (part): part is MessageV2.TextPart =>
-          part.type === "text" && !("synthetic" in part && part.synthetic) && part.text.trim(),
+          part.type === "text" && !("synthetic" in part && part.synthetic) && part.text.trim().length > 0,
       )
       const content = textParts
         .map((part) => part.text.trim())
