@@ -45,6 +45,8 @@ import { SessionStatus } from "./status"
 import { LLM } from "./llm"
 import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
+import { SessionRelevanceCompaction } from "./relevance-compaction"
+import { Collision } from "@/task-mode/collision"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -702,6 +704,17 @@ export namespace SessionPrompt {
 
       await Plugin.trigger("experimental.chat.messages.transform", {}, { messages: sessionMessages })
 
+      const relevanceMessages = Collision.isTaskSession(sessionID)
+        ? await SessionRelevanceCompaction.compact({
+            sessionID,
+            messages: sessionMessages,
+            model,
+            agent: "task",
+            mode: agent.name,
+            abort,
+          })
+        : sessionMessages
+
       const result = await processor.process({
         user: lastUser,
         agent,
@@ -709,7 +722,7 @@ export namespace SessionPrompt {
         sessionID,
         system: [...(await SystemPrompt.environment()), ...(await SystemPrompt.custom())],
         messages: [
-          ...MessageV2.toModelMessage(sessionMessages),
+          ...MessageV2.toModelMessage(relevanceMessages),
           ...(isLastStep
             ? [
                 {
