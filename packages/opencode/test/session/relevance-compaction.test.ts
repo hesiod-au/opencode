@@ -89,7 +89,6 @@ function userMessage(id: string, text: string): MessageV2.WithParts {
     agent: "build",
     model: { providerID: "openai", modelID: "gpt-5.2-codex" },
     tools: {},
-    mode: "",
   }
   return { info, parts: [textPart(id, `p-${id}`, text)] }
 }
@@ -145,7 +144,7 @@ describe("session.compaction.relevance", () => {
             recent: 4,
           },
         },
-      },
+      } as any,
     })
     await Instance.provide({
       directory: tmp.path,
@@ -177,7 +176,7 @@ describe("session.compaction.relevance", () => {
             recent: 4,
           },
         },
-      },
+      } as any,
     })
     await Instance.provide({
       directory: tmp.path,
@@ -205,7 +204,7 @@ describe("session.compaction.relevance", () => {
         compaction: {
           relevance: {},
         },
-      },
+      } as any,
     })
     await Instance.provide({
       directory: tmp.path,
@@ -237,7 +236,7 @@ describe("session.compaction.relevance", () => {
         compaction: {
           relevance: {},
         },
-      },
+      } as any,
     })
     await Instance.provide({
       directory: tmp.path,
@@ -280,7 +279,7 @@ describe("session.compaction.relevance task integration", () => {
             agent: { task: true },
           },
         },
-      },
+      } as any,
     })
     await Instance.provide({
       directory: tmp.path,
@@ -410,7 +409,7 @@ describe("session.compaction.relevance task integration", () => {
             agent: { task: true },
           },
         },
-      },
+      } as any,
     })
     await Instance.provide({
       directory: tmp.path,

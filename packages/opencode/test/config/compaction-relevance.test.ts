@@ -9,7 +9,7 @@ test("relevance compaction defaults target to 0.6", async () => {
       compaction: {
         relevance: {},
       },
-    },
+    } as any,
   })
   await Instance.provide({
     directory: tmp.path,
@@ -26,19 +26,17 @@ test("relevance compaction accepts model target overrides", async () => {
       compaction: {
         relevance: {
           model: {
-            "openai/gpt-5.2-codex": {
-              target: 0.3,
-            },
+            "openai/gpt-5.2-codex": 0.3,
           },
         },
       },
-    },
+    } as any,
   })
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
       const config = await Config.get()
-      expect(config.compaction?.relevance?.model?.["openai/gpt-5.2-codex"]?.target).toBe(0.3)
+      expect(config.compaction?.relevance?.model?.["openai/gpt-5.2-codex"]).toBe(0.3)
     },
   })
 })

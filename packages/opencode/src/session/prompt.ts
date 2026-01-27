@@ -1902,8 +1902,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     })
 
     const text = await iife(async () => {
-      const output = typeof result.text === "function" ? result.text() : result.text
-      return await output
+      // ai SDK stream result exposes a Promise<string> on `.text`.
+      return await result.text
     }).catch((error) => {
       log.error("failed to generate title", { error })
       return undefined
@@ -1930,7 +1930,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       if (subtaskPrompt) return shorten(subtaskPrompt)
       const textParts = firstRealUser.parts.filter(
         (part): part is MessageV2.TextPart =>
-          part.type === "text" && !("synthetic" in part && part.synthetic) && part.text.trim(),
+          part.type === "text" && !("synthetic" in part && Boolean(part.synthetic)) && !!part.text.trim(),
       )
       const content = textParts
         .map((part) => part.text.trim())
