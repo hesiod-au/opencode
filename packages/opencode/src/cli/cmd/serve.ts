@@ -8,6 +8,7 @@ export const ServeCommand = cmd({
   command: "serve",
   builder: (yargs) =>
     withNetworkOptions(yargs).option("task-mode", {
+      alias: ["task"],
       type: "boolean",
       describe: "enable task mode (writes config before server start)",
     }),

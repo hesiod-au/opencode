@@ -92,6 +92,7 @@ export const RunCommand = cmd({
         describe: "model variant (provider-specific reasoning effort, e.g., high, max, minimal)",
       })
       .option("task-mode", {
+        alias: ["task"],
         type: "boolean",
         describe: "enable task mode for this run (starts orchestrator; uses task_list.md)",
       })
