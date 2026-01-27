@@ -203,11 +203,21 @@ export namespace Config {
       {
         cwd: dir,
       },
-    ).catch(() => {})
+    ).catch((err) => {
+      log.warn("failed to install @opencode-ai/plugin", {
+        dir,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    })
 
     // Install any additional dependencies defined in the package.json
     // This allows local plugins and custom tools to use external packages
-    await BunProc.run(["install"], { cwd: dir }).catch(() => {})
+    await BunProc.run(["install"], { cwd: dir }).catch((err) => {
+      log.warn("failed to install dependencies", {
+        dir,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    })
   }
 
   function rel(item: string, patterns: string[]) {
