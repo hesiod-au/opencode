@@ -91,6 +91,18 @@ export const RunCommand = cmd({
         type: "string",
         describe: "model variant (provider-specific reasoning effort, e.g., high, max, minimal)",
       })
+      .option("task-mode", {
+        type: "boolean",
+        describe: "enable task mode for this run (starts orchestrator; uses task_list.md)",
+      })
+      .option("tdd", {
+        type: "boolean",
+        describe: "enable TDD mode when using --task-mode",
+      })
+      .option("task-folder", {
+        type: "string",
+        describe: "task folder name under .opencode/tasks (selects its task_list.md) when using --task-mode",
+      })
   },
   handler: async (args) => {
     let message = [...args.message, ...(args["--"] || [])]
@@ -322,6 +334,27 @@ export const RunCommand = cmd({
         process.exit(1)
       }
 
+      // Optional: enable task mode from CLI before sending the first prompt
+      if (args.taskMode) {
+        const url = new URL("/taskmode/enable", args.attach)
+        const enableRes = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            startOrchestrator: true,
+            parentSessionId: sessionID,
+            folderName: args.taskFolder,
+            tddMode: args.tdd,
+          }),
+        })
+
+        if (!enableRes.ok) {
+          const text = await enableRes.text().catch(() => "")
+          UI.error(`Failed to enable task mode: ${enableRes.status} ${text || enableRes.statusText}`)
+          process.exit(1)
+        }
+      }
+
       const cfgResult = await sdk.config.get()
       if (cfgResult.data && (cfgResult.data.share === "auto" || Flag.OPENCODE_AUTO_SHARE || args.share)) {
         const shareResult = await sdk.session.share({ sessionID }).catch((error) => {
@@ -374,6 +407,26 @@ export const RunCommand = cmd({
       if (!sessionID) {
         UI.error("Session not found")
         process.exit(1)
+      }
+
+      // Optional: enable task mode from CLI before sending the first prompt
+      if (args.taskMode) {
+        const enableRes = await fetchFn("http://opencode.internal/taskmode/enable", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            startOrchestrator: true,
+            parentSessionId: sessionID,
+            folderName: args.taskFolder,
+            tddMode: args.tdd,
+          }),
+        })
+
+        if (!enableRes.ok) {
+          const text = await enableRes.text().catch(() => "")
+          UI.error(`Failed to enable task mode: ${enableRes.status} ${text || enableRes.statusText}`)
+          process.exit(1)
+        }
       }
 
       const cfgResult = await sdk.config.get()
