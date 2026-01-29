@@ -54,7 +54,14 @@ export namespace TestWriterAgent {
     success: boolean
     sessionId: string
     tasksWithTests: number
+    testFramework?: TestFrameworkInfo
     error?: string
+  }
+
+  export interface TestFrameworkInfo {
+    language: string // e.g., "typescript", "python", "go"
+    framework: string // e.g., "bun:test", "pytest", "vitest", "jest"
+    runCommand?: string // e.g., "bun test", "pytest -v"
   }
 
   export interface TestMapping {
@@ -135,7 +142,7 @@ export namespace TestWriterAgent {
         .map((p) => (p as { type: "text"; text: string }).text)
         .join("\n\n")
 
-      const { taskMappings, e2eTest } = parseTestMappings(responseText)
+      const { taskMappings, e2eTest, testFramework } = parseTestMappings(responseText)
 
       // Update task files with test assignments
       let tasksWithTests = 0
@@ -154,13 +161,14 @@ export namespace TestWriterAgent {
         }
       }
 
-      // Save E2E test to task list
-      if (e2eTest) {
+      // Save E2E test and test framework info to task list
+      if (e2eTest || testFramework) {
         await TaskList.update(paths.taskListPath, paths.lockPath, (current) => ({
           ...current,
-          e2eTest,
+          ...(e2eTest && { e2eTest }),
+          ...(testFramework && { testFramework }),
         }))
-        log.info("saved E2E test to task list", { e2eTest })
+        log.info("saved test info to task list", { e2eTest, testFramework })
       }
 
       Bus.publish(TaskModeEvent.TestWritingCompleted, {
@@ -184,6 +192,7 @@ export namespace TestWriterAgent {
         sessionId: session.id,
         tasksWithTests,
         e2eTest,
+        testFramework,
         mappings: taskMappings,
       })
 
@@ -191,6 +200,7 @@ export namespace TestWriterAgent {
         success: true,
         sessionId: session.id,
         tasksWithTests,
+        testFramework,
       }
     } catch (err: any) {
       log.error("test writing failed", { error: err })
@@ -241,11 +251,19 @@ ${taskList}
 After writing the tests, output a mapping of task IDs to test function names in this exact format:
 
 \`\`\`test-mapping
+framework: <language>/<framework>/<run-command>
 001: test_function_name_1, test_function_name_2
 002: test_another_feature
 003: test_integration_works
 e2e: test_complete_feature_e2e
 \`\`\`
+
+**The \`framework:\` line is required** - it specifies the testing framework used. Examples:
+- \`framework: typescript/bun:test/bun test\`
+- \`framework: typescript/vitest/npx vitest run\`
+- \`framework: typescript/jest/npx jest\`
+- \`framework: python/pytest/pytest -v\`
+- \`framework: go/testing/go test ./...\`
 
 **The \`e2e:\` line is required** - it specifies the end-to-end test that validates the entire feature works together.
 
@@ -266,11 +284,13 @@ Now, write the tests and provide the test mapping.
   export interface ParsedTestMappings {
     taskMappings: TestMapping[]
     e2eTest?: string
+    testFramework?: TestFrameworkInfo
   }
 
   export function parseTestMappings(response: string): ParsedTestMappings {
     const taskMappings: TestMapping[] = []
     let e2eTest: string | undefined
+    let testFramework: TestFrameworkInfo | undefined
 
     // Look for the test-mapping code block
     const mappingMatch = response.match(/```test-mapping\n([\s\S]*?)```/)
@@ -280,6 +300,20 @@ Now, write the tests and provide the test mapping.
       const lines = mappingContent.split("\n").filter((l) => l.trim())
 
       for (const line of lines) {
+        // Check for framework line (format: framework: language/framework/run-command)
+        const frameworkMatch = line.match(/^framework:\s*(.+)$/)
+        if (frameworkMatch) {
+          const parts = frameworkMatch[1].trim().split("/")
+          if (parts.length >= 2) {
+            testFramework = {
+              language: parts[0].trim(),
+              framework: parts[1].trim(),
+              runCommand: parts.slice(2).join("/").trim() || undefined,
+            }
+          }
+          continue
+        }
+
         // Check for e2e test line
         const e2eMatch = line.match(/^e2e:\s*(.+)$/)
         if (e2eMatch) {
@@ -301,7 +335,7 @@ Now, write the tests and provide the test mapping.
       }
     }
 
-    return { taskMappings, e2eTest }
+    return { taskMappings, e2eTest, testFramework }
   }
 
   export async function buildPlanningConversationText(sessionId: string): Promise<string> {

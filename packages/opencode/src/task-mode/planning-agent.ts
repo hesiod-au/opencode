@@ -253,9 +253,10 @@ ${conversationContext}
 ${userRequestSection}${conversationSection}${context ? `## Additional Context\n${context}\n\n` : ""}## Instructions
 
 1. Analyze the project structure and requirements based on the conversation above
-2. Break down the work into discrete, manageable tasks
-3. Identify dependencies between tasks
-4. Output a task list in the following markdown table format:
+2. Break down the work into tasks, where each task has a discrete, single purpose
+3. Create as many tasks as needed to complete the work - this could be 1 task or 10+ tasks depending on the scope
+4. Identify dependencies between tasks
+5. Output a task list in the following markdown table format:
 
 \`\`\`markdown
 # Task List
@@ -265,18 +266,20 @@ Brief description of the overall goal.
 | ID | Title | Status | Assignee | Deps | File |
 |----|-------|--------|----------|------|------|
 | 001 | First task title | ⬜ todo | - | - | 001.md |
-| 002 | Second task title | ⬜ todo | - | 001 | 002.md |
-| 003 | Third task title | ⬜ todo | - | 001,002 | 003.md |
+| ... | (n)th task | ⬜ todo | - | deps | nnn.md |
 \`\`\`
 
 ## Guidelines
 
+- Break up the work into tasks with discrete purposes - each task should be a single, coherent unit of work
+- Create as many tasks as are actually needed to complete the job properly
 - Each task should be completable independently (once dependencies are met)
 - Tasks should be small enough for a single agent to complete in one session
 - Dependencies should form a valid DAG (no cycles)
 - Use descriptive titles that clearly indicate what needs to be done
 - Number tasks sequentially starting from 001
 - A task's File should match its ID (e.g., task 001 has file 001.md)
+- Do NOT create tasks for writing tests - test creation is handled separately by the test-writer agent when TDD is enabled
 
 After the table, for each task provide a **comprehensive, self-contained description**:
 
@@ -294,7 +297,7 @@ After the table, for each task provide a **comprehensive, self-contained descrip
 
 The agent working on this task will NOT have access to the original user conversation, so the description must be complete and standalone.
 
-## Task 002: Second task title
+## Task NNN: (n)th task title
 
 And so on for each task...
 

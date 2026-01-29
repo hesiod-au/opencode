@@ -373,7 +373,7 @@ export default function Layout(props: ParentProps) {
     const bUpdated = b.time.updated ?? b.time.created
     const aRecent = aUpdated > oneMinuteAgo
     const bRecent = bUpdated > oneMinuteAgo
-    if (aRecent && bRecent) return a.id.localeCompare(b.id)
+    if (aRecent && bRecent) return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
     if (aRecent && !bRecent) return -1
     if (!aRecent && bRecent) return 1
     return bUpdated - aUpdated
@@ -564,7 +564,7 @@ export default function Layout(props: ParentProps) {
           .map((x) => x.info)
           .filter((m) => !!m?.id)
           .slice()
-          .sort((a, b) => a.id.localeCompare(b.id))
+          .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 
         batch(() => {
           setStore("message", sessionID, reconcile(next, { key: "id" }))
@@ -577,7 +577,7 @@ export default function Layout(props: ParentProps) {
                 message.parts
                   .filter((p) => !!p?.id)
                   .slice()
-                  .sort((a, b) => a.id.localeCompare(b.id)),
+                  .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
                 { key: "id" },
               ),
             )

@@ -47,6 +47,7 @@ export namespace Orchestrator {
     abortController: AbortController | null
     startedAt: number
     completedAt?: number
+    lastStatusMessage?: string // Track last status to avoid spam
     stats: {
       inputTokens: number
       outputTokens: number
@@ -56,6 +57,13 @@ export namespace Orchestrator {
   }
 
   let state: OrchestratorState | null = null
+
+  // Log status message only if it's different from the last one (prevents spam)
+  async function logStatus(key: string, text: string): Promise<void> {
+    if (!state || state.lastStatusMessage === key) return
+    state.lastStatusMessage = key
+    await logAction(text)
+  }
 
   async function logAction(text: string): Promise<void> {
     if (!state?.parentSessionId) {
@@ -97,6 +105,7 @@ export namespace Orchestrator {
     paths: TaskList.Paths,
     parentSessionId: string | undefined,
     stats: { inputTokens: number; outputTokens: number; cost: number; modifiedFiles: Set<string> },
+    testInfo?: { testsCouldNotRun?: boolean; testsCouldNotRunReason?: string },
   ): Promise<void> {
     if (!parentSessionId) {
       log.warn("cannot create final report without parent session")
@@ -145,6 +154,16 @@ export namespace Orchestrator {
         taskSummaries.push(summary)
       }
 
+      // Build warnings section if tests couldn't run
+      const warningsSection = testInfo?.testsCouldNotRun
+        ? `## ⚠️ Warnings
+
+- **Tests could not be run automatically.** ${testInfo.testsCouldNotRunReason || "The test runner could not be determined or executed."}
+- Please run the tests manually to verify the implementation.
+
+`
+        : ""
+
       // Build the final report content
       const reportContent = `# Task Mode Final Report
 
@@ -155,7 +174,7 @@ export namespace Orchestrator {
 - **Errors:** ${counts.error}
 - **Tests Passed:** ${totalTestsPassed}
 
-## Statistics
+${warningsSection}## Statistics
 
 - **Duration:** ${formatDuration(state?.completedAt ? state.completedAt - state.startedAt : 0)}
 - **Input Tokens:** ${stats.inputTokens.toLocaleString()}
@@ -196,7 +215,10 @@ ${Array.from(stats.modifiedFiles).map(f => `- \`${f}\``).join("\n") || "No files
       log.info("final report created", { sessionId: reportSession.id })
 
       // Also log to parent session
-      await logAction(`**Final Report created** - see child session for details\n\n**Summary:** ${counts.completed}/${counts.total} tasks completed, ${totalTestsPassed} tests passed`)
+      const testWarning = testInfo?.testsCouldNotRun
+        ? `\n\n⚠️ **Tests could not be run automatically.** Please run tests manually.`
+        : ""
+      await logAction(`**Final Report created** - see child session for details\n\n**Summary:** ${counts.completed}/${counts.total} tasks completed, ${totalTestsPassed} tests passed${testWarning}`)
 
     } catch (err) {
       log.error("failed to create final report", { error: err })
@@ -217,23 +239,66 @@ ${Array.from(stats.modifiedFiles).map(f => `- \`${f}\``).join("\n") || "No files
   }
 
   // E2E Test running and fixing
-  async function runE2ETest(e2eTestName: string): Promise<{ success: boolean; output: string }> {
+  async function runE2ETest(
+    e2eTestName: string,
+    testFramework?: TaskList.TestFrameworkInfo,
+  ): Promise<{ success: boolean; output: string; couldNotRun?: boolean }> {
     const { spawn } = await import("child_process")
-
-    // Detect test runner
-    const hasBunLock = await Bun.file(`${Instance.directory}/bun.lock`).exists().catch(() => false)
-    const hasPackageJson = await Bun.file(`${Instance.directory}/package.json`).exists().catch(() => false)
-    const hasPytest = await Bun.file(`${Instance.directory}/pytest.ini`).exists().catch(() => false)
-    const hasPyprojectToml = await Bun.file(`${Instance.directory}/pyproject.toml`).exists().catch(() => false)
 
     let command: string[]
 
-    if (hasPytest || hasPyprojectToml) {
-      command = ["pytest", "-v", "-k", e2eTestName]
-    } else if (hasBunLock || hasPackageJson) {
-      command = ["bun", "test", "--test-name-pattern", e2eTestName]
+    // Use test framework info if available
+    if (testFramework?.runCommand) {
+      // Parse the run command and add test name pattern
+      const baseCommand = testFramework.runCommand.split(" ")
+      command = [...baseCommand]
+
+      // Add test name filter based on framework
+      const framework = testFramework.framework.toLowerCase()
+      if (framework.includes("pytest")) {
+        command.push("-k", e2eTestName)
+      } else if (framework.includes("bun")) {
+        command.push("--test-name-pattern", e2eTestName)
+      } else if (framework.includes("vitest")) {
+        command.push("-t", e2eTestName)
+      } else if (framework.includes("jest")) {
+        command.push("-t", e2eTestName)
+      } else if (framework.includes("go") || framework === "testing") {
+        command.push("-run", e2eTestName)
+      } else {
+        // For unknown frameworks, try to append the test name
+        command.push(e2eTestName)
+      }
+
+      log.info("using test framework from task list", { testFramework, command })
     } else {
-      command = ["bun", "test", "--test-name-pattern", e2eTestName]
+      // Fallback: try to detect test runner from project files
+      const hasBunLock = await Bun.file(`${Instance.directory}/bun.lock`).exists().catch(() => false)
+      const hasPackageJson = await Bun.file(`${Instance.directory}/package.json`).exists().catch(() => false)
+      const hasPytest = await Bun.file(`${Instance.directory}/pytest.ini`).exists().catch(() => false)
+      const hasPyprojectToml = await Bun.file(`${Instance.directory}/pyproject.toml`).exists().catch(() => false)
+      const hasGoMod = await Bun.file(`${Instance.directory}/go.mod`).exists().catch(() => false)
+
+      if (hasPytest || hasPyprojectToml) {
+        command = ["pytest", "-v", "-k", e2eTestName]
+      } else if (hasGoMod) {
+        command = ["go", "test", "-v", "-run", e2eTestName, "./..."]
+      } else if (hasBunLock) {
+        command = ["bun", "test", "--test-name-pattern", e2eTestName]
+      } else if (hasPackageJson) {
+        // Check if it's npm/yarn project - try npx vitest or jest
+        command = ["npx", "vitest", "run", "-t", e2eTestName]
+      } else {
+        // Cannot determine test runner
+        log.warn("could not determine test runner", { e2eTestName })
+        return {
+          success: false,
+          output: "Could not determine how to run tests. No test framework info was provided and no recognized test configuration files were found.",
+          couldNotRun: true,
+        }
+      }
+
+      log.info("detected test runner from project files", { command })
     }
 
     log.info("running E2E test", { command, e2eTestName })
@@ -267,7 +332,8 @@ ${Array.from(stats.modifiedFiles).map(f => `- \`${f}\``).join("\n") || "No files
         log.error("E2E test runner failed to start", { error: err })
         resolve({
           success: false,
-          output: `Failed to start test runner: ${err.message}`,
+          output: `Failed to start test runner "${command[0]}": ${err.message}. The test runner may not be installed.`,
+          couldNotRun: true,
         })
       })
     })
@@ -351,30 +417,49 @@ The E2E test validates that all components work together correctly. Focus on int
     }
   }
 
+  // Result type for E2E test loop
+  interface E2ETestLoopResult {
+    success: boolean
+    skipped?: boolean
+    couldNotRun?: boolean
+    reason?: string
+  }
+
   async function runE2ETestLoop(
     taskList: TaskList.TaskListFile,
     paths: TaskList.Paths,
     parentSessionId: string | undefined,
-  ): Promise<boolean> {
+  ): Promise<E2ETestLoopResult> {
     const e2eTestName = taskList.e2eTest
     if (!e2eTestName) {
       log.info("no E2E test defined, skipping E2E test phase")
-      return true
+      return { success: true, skipped: true, reason: "No E2E test defined" }
     }
 
     const config = await Config.get()
     const maxE2ERetries = config.taskMode?.maxTestRetries ?? 10
 
-    log.info("starting E2E test loop", { e2eTestName, maxRetries: maxE2ERetries })
+    log.info("starting E2E test loop", { e2eTestName, maxRetries: maxE2ERetries, testFramework: taskList.testFramework })
     await logAction(`**Running E2E test:** ${e2eTestName}`)
 
     for (let attempt = 1; attempt <= maxE2ERetries; attempt++) {
-      const testResult = await runE2ETest(e2eTestName)
+      const testResult = await runE2ETest(e2eTestName, taskList.testFramework)
+
+      // If we couldn't run the tests at all (not a test failure), give up gracefully
+      if (testResult.couldNotRun) {
+        log.warn("could not run E2E tests, skipping test phase", { output: testResult.output })
+        await logAction(`**Could not run E2E tests:** ${testResult.output}\n\nSkipping E2E test phase. Please run tests manually.`)
+        return {
+          success: true, // Don't fail the overall task
+          couldNotRun: true,
+          reason: testResult.output,
+        }
+      }
 
       if (testResult.success) {
         log.info("E2E test passed", { attempt })
         await logAction(`**E2E test passed** on attempt ${attempt}`)
-        return true
+        return { success: true }
       }
 
       log.info("E2E test failed", { attempt, maxRetries: maxE2ERetries })
@@ -399,7 +484,7 @@ The E2E test validates that all components work together correctly. Focus on int
 
     log.error("E2E test failed after max retries", { maxRetries: maxE2ERetries })
     await logAction(`**E2E test failed** after ${maxE2ERetries} attempts. Manual intervention required.`)
-    return false
+    return { success: false, reason: `E2E test failed after ${maxE2ERetries} attempts` }
   }
 
   function getStateFilePath(paths: TaskList.Paths): string {
@@ -583,6 +668,40 @@ The E2E test validates that all components work together correctly. Focus on int
       return
     }
 
+    // If user sent a message and there are errored tasks with incomplete work remaining,
+    // reset errored tasks to "todo" so they can be retried
+    if (taskList && options?.userPrompt) {
+      const counts = TaskList.getCounts(taskList)
+      if (counts.error > 0) {
+        const erroredTaskIds = taskList.tasks.filter((t) => t.status === "error").map((t) => t.id)
+        log.info("user message received with errored tasks, resetting for retry", {
+          erroredTaskIds,
+          pendingCount: counts.pending,
+        })
+
+        await TaskList.update(paths.taskListPath, paths.lockPath, (current) => {
+          let updated = current
+          for (const taskId of erroredTaskIds) {
+            updated = TaskList.updateTask(updated, taskId, {
+              status: "todo",
+              assignee: undefined,
+            })
+          }
+          return updated
+        })
+
+        // Remove errored tasks from launchedTaskIds so they can be relaunched
+        for (const taskId of erroredTaskIds) {
+          state.launchedTaskIds.delete(taskId)
+        }
+
+        await logAction(
+          `**Retrying ${erroredTaskIds.length} failed task(s):** ${erroredTaskIds.join(", ")}\n\n` +
+            `User message received, resetting errored tasks for another attempt.`,
+        )
+      }
+    }
+
     if (!taskList) {
       // No task list exists - launch planning agent
       log.info("no task list found, launching planning agent", { hasUserPrompt: !!options?.userPrompt })
@@ -724,8 +843,28 @@ The E2E test validates that all components work together correctly. Focus on int
     const taskModeConfig = config.taskMode
     const staggerSeconds = taskModeConfig?.agentLaunchStaggerSeconds ?? 5
     const pollIntervalMs = taskModeConfig?.pollIntervalMs ?? 1000
+    const maxConcurrent = taskModeConfig?.maxConcurrentTasks ?? 3
 
-    log.info("orchestration loop started", { staggerSeconds, pollIntervalMs })
+    log.info("orchestration loop started", { staggerSeconds, pollIntervalMs, maxConcurrent })
+
+    // Log initial task list status
+    const initialTaskList = await TaskList.read(state.paths.taskListPath)
+    if (initialTaskList) {
+      const counts = TaskList.getCounts(initialTaskList)
+      const statusParts = [
+        `**${counts.total} tasks total**`,
+        counts.completed > 0 ? `${counts.completed} done` : null,
+        counts.inProgress > 0 ? `${counts.inProgress} in progress` : null,
+        counts.pending > 0 ? `${counts.pending} pending` : null,
+        counts.error > 0 ? `${counts.error} failed` : null,
+      ].filter(Boolean)
+
+      await logAction(
+        `**Starting orchestration**\n\n` +
+          `${statusParts.join(" · ")}\n\n` +
+          `Max concurrent: ${maxConcurrent} · Stagger: ${staggerSeconds}s`,
+      )
+    }
 
     const poll = async () => {
       if (!state?.running) return
@@ -758,17 +897,26 @@ The E2E test validates that all components work together correctly. Focus on int
         if (TaskList.isAllDone(taskList)) {
           log.info("all tasks completed")
           let hasErrors = TaskList.hasErrors(taskList)
+          let testsCouldNotRun = false
+          let testsCouldNotRunReason: string | undefined
 
           // Run E2E test if defined (TDD mode)
           if (taskList.e2eTest && !hasErrors) {
-            const e2eSuccess = await runE2ETestLoop(taskList, state.paths, state.parentSessionId)
-            if (!e2eSuccess) {
+            const e2eResult = await runE2ETestLoop(taskList, state.paths, state.parentSessionId)
+            if (!e2eResult.success) {
               hasErrors = true
+            }
+            if (e2eResult.couldNotRun) {
+              testsCouldNotRun = true
+              testsCouldNotRunReason = e2eResult.reason
             }
           }
 
           // Create final report as a child session
-          await createFinalReport(taskList, state.paths, state.parentSessionId, state.stats)
+          await createFinalReport(taskList, state.paths, state.parentSessionId, state.stats, {
+            testsCouldNotRun,
+            testsCouldNotRunReason,
+          })
 
           await stop(hasErrors ? "error" : "completed")
           return
@@ -793,9 +941,6 @@ The E2E test validates that all components work together correctly. Focus on int
         // Find runnable tasks
         const runnableTasks = TaskList.getRunnableTasks(taskList)
 
-        // Get max concurrent tasks from config (default to 3)
-        const maxConcurrent = taskModeConfig?.maxConcurrentTasks ?? 3
-
         log.info("poll: checking tasks", {
           runnableCount: runnableTasks.length,
           activeCount: state.activeTasks.size,
@@ -806,6 +951,7 @@ The E2E test validates that all components work together correctly. Focus on int
         })
 
         // Launch new task agents with stagger (respecting max concurrent limit)
+        let launchedThisPoll = 0
         for (const task of runnableTasks) {
           if (!state.running) break
           if (state.activeTasks.has(task.id)) {
@@ -834,6 +980,48 @@ The E2E test validates that all components work together correctly. Focus on int
 
           // Launch the task
           await launchTask(task)
+          launchedThisPoll++
+        }
+
+        // Log waiting status if we didn't launch anything new
+        if (launchedThisPoll === 0 && state.activeTasks.size > 0) {
+          const activeTaskIds = Array.from(state.activeTasks.keys())
+          const pendingTasks = taskList.tasks.filter((t) => t.status === "todo" && !state!.activeTasks.has(t.id))
+          const waitingOnDeps = pendingTasks.filter((t) => {
+            if (!t.dependencies || t.dependencies.length === 0) return false
+            return t.dependencies.some((depId) => {
+              const dep = taskList.tasks.find((d) => d.id === depId)
+              return dep && dep.status !== "done"
+            })
+          })
+
+          if (state.activeTasks.size >= maxConcurrent && pendingTasks.length > 0) {
+            // At capacity with more work waiting
+            await logStatus(
+              `waiting-capacity-${activeTaskIds.sort().join(",")}`,
+              `**Waiting for task slot** (${state.activeTasks.size}/${maxConcurrent} running)\n\n` +
+                `Active: ${activeTaskIds.join(", ")}\n` +
+                `Queued: ${pendingTasks.length} task${pendingTasks.length === 1 ? "" : "s"} waiting`,
+            )
+          } else if (waitingOnDeps.length > 0 && pendingTasks.length === waitingOnDeps.length) {
+            // All remaining tasks are blocked by dependencies
+            const depInfo = waitingOnDeps
+              .slice(0, 3)
+              .map((t) => `${t.id} → needs ${t.dependencies!.join(", ")}`)
+              .join("\n")
+            await logStatus(
+              `waiting-deps-${activeTaskIds.sort().join(",")}`,
+              `**Waiting for dependencies**\n\n` +
+                `Active: ${activeTaskIds.join(", ")}\n` +
+                `Blocked:\n${depInfo}${waitingOnDeps.length > 3 ? `\n...and ${waitingOnDeps.length - 3} more` : ""}`,
+            )
+          } else if (pendingTasks.length === 0) {
+            // No pending tasks, just waiting for active ones to finish
+            await logStatus(
+              `waiting-completion-${activeTaskIds.sort().join(",")}`,
+              `**Waiting for tasks to complete**\n\n` + `Active: ${activeTaskIds.join(", ")}`,
+            )
+          }
         }
       } catch (err) {
         log.error("poll error", { error: err })
@@ -897,6 +1085,7 @@ The E2E test validates that all components work together correctly. Focus on int
       .then(async (result) => {
         if (state) {
           state.activeTasks.delete(task.id)
+          state.lastStatusMessage = undefined // Clear so next status update shows new state
 
           // Aggregate stats from task result
           if (result.stats) {
@@ -920,6 +1109,7 @@ The E2E test validates that all components work together correctly. Focus on int
       .catch(async (err) => {
         if (state) {
           state.activeTasks.delete(task.id)
+          state.lastStatusMessage = undefined // Clear so next status update shows new state
           await saveState() // Save state after task errors
         }
         log.error("task error", { taskId: task.id, error: err })

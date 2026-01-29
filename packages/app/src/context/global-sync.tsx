@@ -167,7 +167,7 @@ function createGlobalSync() {
           .filter((s) => !!s?.id)
           .filter((s) => !s.time?.archived)
           .slice()
-          .sort((a, b) => a.id.localeCompare(b.id))
+          .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 
         const sandboxWorkspace = globalStore.project.some((p) => (p.sandboxes ?? []).includes(directory))
         if (sandboxWorkspace) {
@@ -271,7 +271,7 @@ function createGlobalSync() {
                     permissions
                       .filter((p) => !!p?.id)
                       .slice()
-                      .sort((a, b) => a.id.localeCompare(b.id)),
+                      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
                     { key: "id" },
                   ),
                 )
@@ -303,7 +303,7 @@ function createGlobalSync() {
                     questions
                       .filter((q) => !!q?.id)
                       .slice()
-                      .sort((a, b) => a.id.localeCompare(b.id)),
+                      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
                     { key: "id" },
                   ),
                 )
@@ -595,7 +595,7 @@ function createGlobalSync() {
             .filter((p) => !!p?.id)
             .filter((p) => !!p.worktree && !p.worktree.includes("opencode-test"))
             .slice()
-            .sort((a, b) => a.id.localeCompare(b.id))
+            .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
           setGlobalStore("project", projects)
         }),
       ),

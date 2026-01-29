@@ -21,11 +21,19 @@ export namespace TaskList {
   })
   export type TaskEntry = z.infer<typeof TaskEntry>
 
+  export const TestFrameworkInfo = z.object({
+    language: z.string(), // e.g., "typescript", "python", "go"
+    framework: z.string(), // e.g., "bun:test", "pytest", "vitest", "jest"
+    runCommand: z.string().optional(), // e.g., "bun test", "pytest -v"
+  })
+  export type TestFrameworkInfo = z.infer<typeof TestFrameworkInfo>
+
   export const TaskListFile = z.object({
     title: z.string().optional(),
     description: z.string().optional(),
     tasks: z.array(TaskEntry),
     e2eTest: z.string().optional(), // End-to-end test name for TDD mode
+    testFramework: TestFrameworkInfo.optional(), // Test framework info from test-writer
   })
   export type TaskListFile = z.infer<typeof TaskListFile>
 
@@ -71,6 +79,20 @@ export namespace TaskList {
       // Parse e2eTest field
       if (trimmed.startsWith("e2e-test:")) {
         result.e2eTest = trimmed.slice("e2e-test:".length).trim()
+        continue
+      }
+
+      // Parse testFramework field (format: test-framework: language/framework/run-command)
+      if (trimmed.startsWith("test-framework:")) {
+        const value = trimmed.slice("test-framework:".length).trim()
+        const parts = value.split("/")
+        if (parts.length >= 2) {
+          result.testFramework = {
+            language: parts[0].trim(),
+            framework: parts[1].trim(),
+            runCommand: parts.slice(2).join("/").trim() || undefined,
+          }
+        }
         continue
       }
 
@@ -178,6 +200,15 @@ export namespace TaskList {
 
     if (data.e2eTest) {
       lines.push(`e2e-test: ${data.e2eTest}`)
+      lines.push("")
+    }
+
+    if (data.testFramework) {
+      const parts = [data.testFramework.language, data.testFramework.framework]
+      if (data.testFramework.runCommand) {
+        parts.push(data.testFramework.runCommand)
+      }
+      lines.push(`test-framework: ${parts.join("/")}`)
       lines.push("")
     }
 
