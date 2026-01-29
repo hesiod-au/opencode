@@ -7,6 +7,10 @@ import { Agent } from "../agent/agent"
 import { TaskList } from "./task-list"
 import { TaskFile } from "./task-file"
 import { TaskModeEvent } from "./events"
+import { Instance } from "../project/instance"
+import { spawn, execSync } from "child_process"
+import fs from "fs/promises"
+import path from "path"
 
 export namespace TestWriterAgent {
   const log = Log.create({ service: "test-writer-agent" })
@@ -55,6 +59,8 @@ export namespace TestWriterAgent {
     sessionId: string
     tasksWithTests: number
     testFramework?: TestFrameworkInfo
+    frameworkWarning?: string // Warning if framework couldn't be installed
+    skipTests?: boolean // True if user chose to skip testing
     error?: string
   }
 
@@ -161,14 +167,45 @@ export namespace TestWriterAgent {
         }
       }
 
+      // Check if test framework is installed and install if needed
+      let frameworkWarning: string | undefined
+      let finalTestFramework = testFramework
+
+      if (testFramework) {
+        const frameworkCheck = await ensureTestFrameworkInstalled(testFramework, parentSessionId)
+
+        if (frameworkCheck.userActionRequired) {
+          log.warn("test framework requires user action", { message: frameworkCheck.message })
+          frameworkWarning = frameworkCheck.message
+
+          await logToParent(
+            parentSessionId,
+            `⚠️ **Test framework issue:**\n\n${frameworkCheck.message}\n\n` +
+              `You can:\n` +
+              `1. Install the test framework manually and re-run\n` +
+              `2. Update the task list with the correct framework info\n` +
+              `3. Continue without automated testing (tests will need to be run manually)`,
+          )
+        } else if (frameworkCheck.installedSuccessfully) {
+          // Update run command for Python venv if needed
+          if (testFramework.language.toLowerCase() === "python" && testFramework.framework.toLowerCase().includes("pytest")) {
+            finalTestFramework = {
+              ...testFramework,
+              runCommand: ".venv/bin/pytest -v",
+            }
+            log.info("updated test framework run command for venv", { runCommand: finalTestFramework.runCommand })
+          }
+        }
+      }
+
       // Save E2E test and test framework info to task list
-      if (e2eTest || testFramework) {
+      if (e2eTest || finalTestFramework) {
         await TaskList.update(paths.taskListPath, paths.lockPath, (current) => ({
           ...current,
           ...(e2eTest && { e2eTest }),
-          ...(testFramework && { testFramework }),
+          ...(finalTestFramework && { testFramework: finalTestFramework }),
         }))
-        log.info("saved test info to task list", { e2eTest, testFramework })
+        log.info("saved test info to task list", { e2eTest, testFramework: finalTestFramework })
       }
 
       Bus.publish(TaskModeEvent.TestWritingCompleted, {
@@ -182,25 +219,30 @@ export namespace TestWriterAgent {
         .join("\n")
 
       const e2eSummary = e2eTest ? `\n\n**E2E Test:** ${e2eTest}` : ""
+      const frameworkSummary = finalTestFramework
+        ? `\n\n**Framework:** ${finalTestFramework.language}/${finalTestFramework.framework}${finalTestFramework.runCommand ? ` (${finalTestFramework.runCommand})` : ""}`
+        : ""
 
       await logToParent(
         parentSessionId,
-        `**Test writing completed** \n\nAssigned tests to ${tasksWithTests} tasks:\n\n${testSummary || "No test mappings found."}${e2eSummary}`,
+        `**Test writing completed** \n\nAssigned tests to ${tasksWithTests} tasks:\n\n${testSummary || "No test mappings found."}${e2eSummary}${frameworkSummary}`,
       )
 
       log.info("test writing completed", {
         sessionId: session.id,
         tasksWithTests,
         e2eTest,
-        testFramework,
+        testFramework: finalTestFramework,
         mappings: taskMappings,
+        frameworkWarning,
       })
 
       return {
         success: true,
         sessionId: session.id,
         tasksWithTests,
-        testFramework,
+        testFramework: finalTestFramework,
+        frameworkWarning,
       }
     } catch (err: any) {
       log.error("test writing failed", { error: err })
@@ -336,6 +378,306 @@ Now, write the tests and provide the test mapping.
     }
 
     return { taskMappings, e2eTest, testFramework }
+  }
+
+  interface FrameworkCheckResult {
+    installed: boolean
+    installedSuccessfully?: boolean
+    error?: string
+    userActionRequired?: boolean
+    message?: string
+  }
+
+  async function checkCommandExists(command: string): Promise<boolean> {
+    try {
+      execSync(`which ${command}`, { stdio: "ignore" })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  async function runCommand(
+    command: string,
+    args: string[],
+    cwd: string,
+  ): Promise<{ success: boolean; output: string }> {
+    return new Promise((resolve) => {
+      const proc = spawn(command, args, {
+        cwd,
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+
+      let stdout = ""
+      let stderr = ""
+
+      proc.stdout.on("data", (data) => {
+        stdout += data.toString()
+      })
+
+      proc.stderr.on("data", (data) => {
+        stderr += data.toString()
+      })
+
+      proc.on("close", (code) => {
+        resolve({
+          success: code === 0,
+          output: stdout + stderr,
+        })
+      })
+
+      proc.on("error", (err) => {
+        resolve({
+          success: false,
+          output: err.message,
+        })
+      })
+    })
+  }
+
+  export async function ensureTestFrameworkInstalled(
+    testFramework: TestFrameworkInfo,
+    parentSessionId?: string,
+  ): Promise<FrameworkCheckResult> {
+    const { language, framework, runCommand: frameworkRunCommand } = testFramework
+    const projectDir = Instance.directory
+
+    log.info("checking test framework installation", { language, framework })
+
+    // Determine the command to check if framework is installed
+    let checkCommand: string
+    let checkArgs: string[]
+
+    const lowerFramework = framework.toLowerCase()
+    const lowerLanguage = language.toLowerCase()
+
+    if (lowerFramework.includes("pytest") || lowerLanguage === "python") {
+      checkCommand = "pytest"
+      checkArgs = ["--version"]
+    } else if (lowerFramework.includes("bun")) {
+      checkCommand = "bun"
+      checkArgs = ["--version"]
+    } else if (lowerFramework.includes("vitest")) {
+      checkCommand = "npx"
+      checkArgs = ["vitest", "--version"]
+    } else if (lowerFramework.includes("jest")) {
+      checkCommand = "npx"
+      checkArgs = ["jest", "--version"]
+    } else if (lowerFramework.includes("go") || lowerFramework === "testing") {
+      checkCommand = "go"
+      checkArgs = ["version"]
+    } else {
+      // Unknown framework - ask user
+      return {
+        installed: false,
+        userActionRequired: true,
+        message: `Unknown test framework "${framework}". Please install it manually or specify a different framework.`,
+      }
+    }
+
+    // Check if framework is installed
+    const checkResult = await runCommand(checkCommand, checkArgs, projectDir)
+
+    if (checkResult.success) {
+      log.info("test framework is installed", { framework, output: checkResult.output.slice(0, 100) })
+      return { installed: true }
+    }
+
+    log.info("test framework not found, attempting installation", { framework })
+    await logToParent(parentSessionId, `**Test framework "${framework}" not found.** Attempting to install...`)
+
+    // Try to install based on language/framework
+    if (lowerLanguage === "python" || lowerFramework.includes("pytest")) {
+      return await installPythonFramework(framework, projectDir, parentSessionId)
+    } else if (
+      lowerLanguage === "typescript" ||
+      lowerLanguage === "javascript" ||
+      lowerFramework.includes("bun") ||
+      lowerFramework.includes("vitest") ||
+      lowerFramework.includes("jest")
+    ) {
+      return await installJsFramework(framework, projectDir, parentSessionId)
+    } else if (lowerLanguage === "go") {
+      // Go testing is built-in, shouldn't need installation
+      return {
+        installed: false,
+        userActionRequired: true,
+        message: `Go testing framework should be built-in. Please ensure Go is installed correctly.`,
+      }
+    }
+
+    return {
+      installed: false,
+      userActionRequired: true,
+      message: `Cannot automatically install test framework "${framework}" for language "${language}". Please install it manually.`,
+    }
+  }
+
+  async function installPythonFramework(
+    framework: string,
+    projectDir: string,
+    parentSessionId?: string,
+  ): Promise<FrameworkCheckResult> {
+    const venvPath = path.join(projectDir, ".venv")
+    const lowerFramework = framework.toLowerCase()
+
+    // Determine package name
+    let packageName = "pytest" // default
+    if (lowerFramework.includes("pytest")) {
+      packageName = "pytest"
+    } else if (lowerFramework.includes("unittest")) {
+      // unittest is built-in
+      return { installed: true }
+    }
+
+    // Check if venv exists
+    const venvExists = await fs
+      .access(venvPath)
+      .then(() => true)
+      .catch(() => false)
+
+    if (!venvExists) {
+      // Create venv
+      log.info("creating Python venv", { venvPath })
+      await logToParent(parentSessionId, `Creating Python virtual environment...`)
+
+      const pythonCmd = (await checkCommandExists("python3")) ? "python3" : "python"
+      const venvResult = await runCommand(pythonCmd, ["-m", "venv", ".venv"], projectDir)
+
+      if (!venvResult.success) {
+        return {
+          installed: false,
+          userActionRequired: true,
+          message: `Failed to create Python venv: ${venvResult.output}\n\nPlease create a virtual environment manually and install ${packageName}.`,
+        }
+      }
+    }
+
+    // Install package in venv
+    const pipPath = path.join(venvPath, "bin", "pip")
+    log.info("installing Python package", { packageName, pipPath })
+    await logToParent(parentSessionId, `Installing ${packageName} in venv...`)
+
+    const installResult = await runCommand(pipPath, ["install", packageName], projectDir)
+
+    if (!installResult.success) {
+      return {
+        installed: false,
+        userActionRequired: true,
+        message: `Failed to install ${packageName}: ${installResult.output}\n\nPlease install it manually: ${pipPath} install ${packageName}`,
+      }
+    }
+
+    // Verify installation
+    const pytestPath = path.join(venvPath, "bin", "pytest")
+    const verifyResult = await runCommand(pytestPath, ["--version"], projectDir)
+
+    if (verifyResult.success) {
+      log.info("Python test framework installed successfully", { packageName })
+      await logToParent(parentSessionId, `✅ ${packageName} installed successfully in venv`)
+      return { installed: true, installedSuccessfully: true }
+    }
+
+    return {
+      installed: false,
+      userActionRequired: true,
+      message: `Installed ${packageName} but verification failed. Please check the installation.`,
+    }
+  }
+
+  async function installJsFramework(
+    framework: string,
+    projectDir: string,
+    parentSessionId?: string,
+  ): Promise<FrameworkCheckResult> {
+    const lowerFramework = framework.toLowerCase()
+
+    // Determine package name and package manager
+    let packageName: string
+    if (lowerFramework.includes("vitest")) {
+      packageName = "vitest"
+    } else if (lowerFramework.includes("jest")) {
+      packageName = "jest"
+    } else if (lowerFramework.includes("bun")) {
+      // bun test is built into bun
+      const bunInstalled = await checkCommandExists("bun")
+      if (bunInstalled) {
+        return { installed: true }
+      }
+      return {
+        installed: false,
+        userActionRequired: true,
+        message: `Bun is not installed. Please install Bun from https://bun.sh or use a different test framework.`,
+      }
+    } else {
+      return {
+        installed: false,
+        userActionRequired: true,
+        message: `Unknown JavaScript test framework "${framework}". Please install it manually.`,
+      }
+    }
+
+    // Detect package manager
+    const hasBunLock = await fs
+      .access(path.join(projectDir, "bun.lock"))
+      .then(() => true)
+      .catch(() => false)
+    const hasBunLockb = await fs
+      .access(path.join(projectDir, "bun.lockb"))
+      .then(() => true)
+      .catch(() => false)
+    const hasYarnLock = await fs
+      .access(path.join(projectDir, "yarn.lock"))
+      .then(() => true)
+      .catch(() => false)
+    const hasPnpmLock = await fs
+      .access(path.join(projectDir, "pnpm-lock.yaml"))
+      .then(() => true)
+      .catch(() => false)
+    const hasPackageJson = await fs
+      .access(path.join(projectDir, "package.json"))
+      .then(() => true)
+      .catch(() => false)
+
+    let installCmd: string
+    let installArgs: string[]
+
+    if (hasBunLock || hasBunLockb) {
+      installCmd = "bun"
+      installArgs = ["add", "-d", packageName]
+    } else if (hasYarnLock) {
+      installCmd = "yarn"
+      installArgs = ["add", "-D", packageName]
+    } else if (hasPnpmLock) {
+      installCmd = "pnpm"
+      installArgs = ["add", "-D", packageName]
+    } else if (hasPackageJson) {
+      installCmd = "npm"
+      installArgs = ["install", "-D", packageName]
+    } else {
+      return {
+        installed: false,
+        userActionRequired: true,
+        message: `No package.json found. Please initialize a Node.js project first or install ${packageName} manually.`,
+      }
+    }
+
+    log.info("installing JS package", { packageName, installCmd })
+    await logToParent(parentSessionId, `Installing ${packageName} using ${installCmd}...`)
+
+    const installResult = await runCommand(installCmd, installArgs, projectDir)
+
+    if (!installResult.success) {
+      return {
+        installed: false,
+        userActionRequired: true,
+        message: `Failed to install ${packageName}: ${installResult.output}\n\nPlease install it manually: ${installCmd} ${installArgs.join(" ")}`,
+      }
+    }
+
+    log.info("JS test framework installed successfully", { packageName })
+    await logToParent(parentSessionId, `✅ ${packageName} installed successfully`)
+    return { installed: true, installedSuccessfully: true }
   }
 
   export async function buildPlanningConversationText(sessionId: string): Promise<string> {
