@@ -81,9 +81,13 @@ export namespace TaskAgent {
     success: boolean
     output: string
     failedTests: string[]
+    couldNotRun?: boolean // True if test runner couldn't be started (not a test failure)
   }
 
-  export async function runTaskTests(tests: string[]): Promise<TestRunResult> {
+  export async function runTaskTests(
+    tests: string[],
+    testFramework?: TaskList.TestFrameworkInfo,
+  ): Promise<TestRunResult> {
     if (tests.length === 0) {
       return { success: true, output: "No tests to run", failedTests: [] }
     }
@@ -91,23 +95,57 @@ export namespace TaskAgent {
     // Build test pattern from test names
     const testPattern = tests.join("|")
 
-    // Detect test runner based on project files
-    const hasBunLock = await Bun.file(`${Instance.directory}/bun.lock`).exists().catch(() => false)
-    const hasPackageJson = await Bun.file(`${Instance.directory}/package.json`).exists().catch(() => false)
-    const hasPytest = await Bun.file(`${Instance.directory}/pytest.ini`).exists().catch(() => false)
-    const hasPyprojectToml = await Bun.file(`${Instance.directory}/pyproject.toml`).exists().catch(() => false)
-
     let command: string[]
 
-    if (hasPytest || hasPyprojectToml) {
-      // Python project - use pytest
-      command = ["pytest", "-v", "-k", testPattern]
-    } else if (hasBunLock || hasPackageJson) {
-      // JavaScript/TypeScript project - use bun test
-      command = ["bun", "test", "--test-name-pattern", testPattern]
+    // Use test framework info if available (from test-writer agent)
+    if (testFramework?.runCommand) {
+      const baseCommand = testFramework.runCommand.split(" ")
+      command = [...baseCommand]
+
+      // Add test name filter based on framework
+      const framework = testFramework.framework.toLowerCase()
+      if (framework.includes("pytest")) {
+        command.push("-k", testPattern)
+      } else if (framework.includes("bun")) {
+        command.push("--test-name-pattern", testPattern)
+      } else if (framework.includes("vitest")) {
+        command.push("-t", testPattern)
+      } else if (framework.includes("jest")) {
+        command.push("-t", testPattern)
+      } else if (framework.includes("go") || framework === "testing") {
+        command.push("-run", testPattern)
+      } else {
+        // For unknown frameworks, try to append the test pattern
+        command.push(testPattern)
+      }
+
+      log.info("using test framework from task list", { testFramework, command })
     } else {
-      // Default to bun test
-      command = ["bun", "test", "--test-name-pattern", testPattern]
+      // Fallback: Detect test runner based on project files
+      const hasBunLock = await Bun.file(`${Instance.directory}/bun.lock`).exists().catch(() => false)
+      const hasPackageJson = await Bun.file(`${Instance.directory}/package.json`).exists().catch(() => false)
+      const hasPytest = await Bun.file(`${Instance.directory}/pytest.ini`).exists().catch(() => false)
+      const hasPyprojectToml = await Bun.file(`${Instance.directory}/pyproject.toml`).exists().catch(() => false)
+
+      if (hasPytest || hasPyprojectToml) {
+        // Python project - use pytest
+        command = ["pytest", "-v", "-k", testPattern]
+      } else if (hasBunLock || hasPackageJson) {
+        // JavaScript/TypeScript project - use bun test
+        command = ["bun", "test", "--test-name-pattern", testPattern]
+      } else {
+        // Cannot determine test runner
+        log.warn("could not determine test runner", { tests })
+        return {
+          success: false,
+          output:
+            "Could not determine how to run tests. No test framework info was provided and no recognized test configuration files were found.",
+          failedTests: tests,
+          couldNotRun: true,
+        }
+      }
+
+      log.info("detected test runner from project files", { command })
     }
 
     log.info("running tests", { command, tests })
@@ -156,8 +194,9 @@ export namespace TaskAgent {
         log.error("test runner failed to start", { error: err })
         resolve({
           success: false,
-          output: `Failed to start test runner: ${err.message}`,
+          output: `Failed to start test runner "${command[0]}": ${err.message}. The test runner may not be installed.`,
           failedTests: tests,
+          couldNotRun: true,
         })
       })
     })
@@ -388,13 +427,28 @@ Important:
       if (taskFileForTests?.tests && taskFileForTests.tests.length > 0) {
         log.info("running assigned tests before completion", { taskId, tests: taskFileForTests.tests })
 
+        // Get test framework info from task list
+        const taskListForFramework = await TaskList.read(paths.taskListPath)
+        const testFramework = taskListForFramework?.testFramework
+
         const config = await Config.get()
         const maxTestRetries = config.taskMode?.maxTestRetries ?? 10
         let testRetryCount = 0
         let testsPass = false
+        let testsCouldNotRun = false
 
-        while (!testsPass && testRetryCount < maxTestRetries) {
-          const testResult = await runTaskTests(taskFileForTests.tests)
+        while (!testsPass && !testsCouldNotRun && testRetryCount < maxTestRetries) {
+          const testResult = await runTaskTests(taskFileForTests.tests, testFramework)
+
+          // If tests couldn't run (e.g., test runner not found), don't fail the task
+          if (testResult.couldNotRun) {
+            log.warn("tests could not be run, skipping test verification", { taskId, output: testResult.output })
+            testsCouldNotRun = true
+            comments =
+              (comments ? comments + "\n\n" : "") +
+              `⚠️ Tests could not be run automatically: ${testResult.output}\nPlease run tests manually to verify.`
+            break
+          }
 
           if (testResult.success) {
             testsPass = true
@@ -402,7 +456,11 @@ Important:
             comments = (comments ? comments + "\n\n" : "") + "All assigned tests passed."
           } else {
             testRetryCount++
-            log.info("tests failed, attempting fix", { taskId, retryCount: testRetryCount, failedTests: testResult.failedTests })
+            log.info("tests failed, attempting fix", {
+              taskId,
+              retryCount: testRetryCount,
+              failedTests: testResult.failedTests,
+            })
 
             if (testRetryCount < maxTestRetries) {
               // Send test failure to agent for fixing
@@ -424,9 +482,11 @@ Important:
           }
         }
 
-        if (!testsPass) {
+        if (!testsPass && !testsCouldNotRun) {
           // Tests still failing after max retries
-          throw new Error(`Tests failed after ${maxTestRetries} fix attempts. Failed tests: ${taskFileForTests.tests.join(", ")}`)
+          throw new Error(
+            `Tests failed after ${maxTestRetries} fix attempts. Failed tests: ${taskFileForTests.tests.join(", ")}`,
+          )
         }
       }
 
