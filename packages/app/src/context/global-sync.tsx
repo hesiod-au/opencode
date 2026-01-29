@@ -161,13 +161,17 @@ function createGlobalSync() {
     const limit = store.limit
 
     return globalSDK.client.session
-      .list({ directory, roots: true })
+      .list({ directory })
       .then((x) => {
         const nonArchived = (x.data ?? [])
           .filter((s) => !!s?.id)
           .filter((s) => !s.time?.archived)
           .slice()
           .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+
+        // Separate root and child sessions
+        const rootSessions = nonArchived.filter((s) => !s.parentID)
+        const childSessions = nonArchived.filter((s) => !!s.parentID)
 
         const sandboxWorkspace = globalStore.project.some((p) => (p.sandboxes ?? []).includes(directory))
         if (sandboxWorkspace) {
@@ -176,14 +180,21 @@ function createGlobalSync() {
         }
 
         const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000
-        // Include up to the limit, plus any updated in the last 4 hours
-        const sessions = nonArchived.filter((s, i) => {
+        // Include up to the limit, plus any updated in the last 4 hours (only for root sessions)
+        const filteredRoots = rootSessions.filter((s, i) => {
           if (i < limit) return true
           const updated = new Date(s.time?.updated ?? s.time?.created).getTime()
           return updated > fourHoursAgo
         })
-        // Store total session count (used for "load more" pagination)
-        setStore("sessionTotal", nonArchived.length)
+        // Include child sessions whose parent is included
+        const includedRootIds = new Set(filteredRoots.map((s) => s.id))
+        const filteredChildren = childSessions.filter((s) => includedRootIds.has(s.parentID!))
+
+        const sessions = [...filteredRoots, ...filteredChildren].sort((a, b) =>
+          a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+        )
+        // Store total session count (only root sessions for "load more" pagination)
+        setStore("sessionTotal", rootSessions.length)
         setStore("session", reconcile(sessions, { key: "id" }))
       })
       .catch((err) => {
