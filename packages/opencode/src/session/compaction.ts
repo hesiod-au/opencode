@@ -145,7 +145,7 @@ export namespace SessionCompaction {
 
       // Build messages for the LLM call
       const llmMessages = [
-        ...MessageV2.toModelMessage(contextMessages),
+        ...MessageV2.toModelMessages(contextMessages, model),
         {
           role: "user" as const,
           content: promptText,
@@ -164,7 +164,7 @@ export namespace SessionCompaction {
       }
 
       // Generate preview using LLM
-      const modelMessages = MessageV2.toModelMessage(contextMessages)
+      const modelMessages = MessageV2.toModelMessages(contextMessages, model)
       log.info("generating compaction preview", {
         sessionID: input.sessionID,
         messageCount: contextMessages.length,
@@ -443,6 +443,7 @@ export namespace SessionCompaction {
       sessionID: input.sessionID,
       mode: "compaction",
       agent: "compaction",
+      variant: userMessage.variant,
       summary: true,
       path: {
         cwd: Instance.directory,
@@ -483,7 +484,7 @@ export namespace SessionCompaction {
       tools: {},
       system: [],
       messages: [
-        ...MessageV2.toModelMessage(input.messages),
+        ...MessageV2.toModelMessages(input.messages, model),
         {
           role: "user",
           content: [

@@ -301,8 +301,9 @@ describe("session.compaction.relevance", () => {
       fn: async () => {
         resetQueue([])
         const messages = buildTurns(5)
-        const tokens = Token.estimate(JSON.stringify(MessageV2.toModelMessage(messages)))
         const output = 100
+        const tmpModel = createModel({ context: 999999, output })
+        const tokens = Token.estimate(JSON.stringify(MessageV2.toModelMessages(messages, tmpModel)))
         const reserve = Math.min(output, SessionPrompt.OUTPUT_TOKEN_MAX) || SessionPrompt.OUTPUT_TOKEN_MAX
         const usable = Math.ceil(tokens / 0.55)
         const model = createModel({ context: usable + reserve, output })
@@ -333,8 +334,9 @@ describe("session.compaction.relevance", () => {
       fn: async () => {
         resetQueue(["anchor", "DECISION: DROP\nCONFIDENCE: 0.9", "DECISION: DROP\nCONFIDENCE: 0.9"])
         const messages = buildTurns(5)
-        const tokens = Token.estimate(JSON.stringify(MessageV2.toModelMessage(messages)))
         const output = 100
+        const tmpModel = createModel({ context: 999999, output, id: "codex", providerID: "openai" })
+        const tokens = Token.estimate(JSON.stringify(MessageV2.toModelMessages(messages, tmpModel)))
         const reserve = Math.min(output, SessionPrompt.OUTPUT_TOKEN_MAX) || SessionPrompt.OUTPUT_TOKEN_MAX
         const usable = Math.ceil(tokens / 0.4)
         const model = createModel({ context: usable + reserve, output, id: "codex", providerID: "openai" })

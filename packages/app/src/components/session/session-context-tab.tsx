@@ -7,6 +7,7 @@ import { useLayout } from "@/context/layout"
 import { useSDK } from "@/context/sdk"
 import { useLocal } from "@/context/local"
 import { checksum } from "@opencode-ai/util/encode"
+import { findLast } from "@opencode-ai/util/array"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Accordion } from "@opencode-ai/ui/accordion"
 import { StickyAccordionHeader } from "@opencode-ai/ui/sticky-accordion-header"
@@ -14,6 +15,8 @@ import { Code } from "@opencode-ai/ui/code"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import type { AssistantMessage, Message, Part, UserMessage } from "@opencode-ai/sdk/v2/client"
+import { useLanguage } from "@/context/language"
+import { getSessionContextMetrics } from "./session-context-metrics"
 import { ContextMessageList } from "./context-message-list"
 import { ContextGroupedView } from "./context-grouped-view"
 import { PendingDeletionsProvider, usePendingDeletions } from "./use-pending-deletions"
@@ -33,39 +36,24 @@ type ViewMode = "chronological" | "grouped" | "raw"
 export type ItemState = "neutral" | "force_include" | "force_exclude"
 
 export interface SelectionState {
-  // Legacy: still used internally
   excluded: Accessor<Set<string>>
   setExcluded: Setter<Set<string>>
-
-  // Three-state accessors
   getItemState: (partId: string) => ItemState
   isForceIncluded: (partId: string) => boolean
   isForceExcluded: (partId: string) => boolean
-
-  // Three-state mutations
   setInclude: (partId: string) => void
   setExclude: (partId: string) => void
-
-  // Legacy toggle (still used internally)
   toggleExcluded: (partId: string) => void
-
-  // Archive callback for double-minus
   onDoubleExclude?: (partId: string) => void
-
-  // Hidden state (local UI only)
   hidden: Accessor<Set<string>>
   setHidden: Setter<Set<string>>
   showHidden: Accessor<boolean>
   setShowHidden: Setter<boolean>
   toggleHidden: (partId: string) => void
-
-  // Bulk operations
   excludeAll: () => void
   includeAll: () => void
   hideAll: () => void
   showAll: () => void
-
-  // Compaction selection - separate from exclusion
   compactSelection: Accessor<Set<string>>
   toggleCompactSelection: (partId: string) => void
   clearCompactSelection: () => void
@@ -83,13 +71,21 @@ export function SessionContextTab(props: SessionContextTabProps) {
   const sync = useSync()
   const sdk = useSDK()
   const dialog = useDialog()
+  const language = useLanguage()
   const snapshots = useContextSnapshots()
   const loadedSnapshotCtx = useLoadedSnapshot()
   const archive = useArchive(sdk.directory)
   const canonicalContext = useCanonicalContext()
   const [viewMode, setViewMode] = createSignal<ViewMode>("chronological")
 
-  // Get messages - use snapshot data if loaded, otherwise use live data
+  const usd = createMemo(
+    () =>
+      new Intl.NumberFormat(language.locale(), {
+        style: "currency",
+        currency: "USD",
+      }),
+  )
+
   const getMessages = (): Message[] => {
     const snapshot = loadedSnapshotCtx.snapshot()
     if (snapshot) {
@@ -98,8 +94,6 @@ export function SessionContextTab(props: SessionContextTabProps) {
     return props.messages()
   }
 
-  // Get parts - use snapshot data if loaded, otherwise use live data
-  // Also merge excluded content from canonical context
   const getParts = (messageId: string): Part[] => {
     const snapshot = loadedSnapshotCtx.snapshot()
     if (snapshot) {
@@ -108,23 +102,18 @@ export function SessionContextTab(props: SessionContextTabProps) {
 
     const serverParts = (sync.data.part[messageId] ?? []) as Part[]
 
-    // Merge excluded parts from canonical context
     const excluded = canonicalContext.getExcludedContent()
     const excludedParts = excluded.parts[messageId]
     if (!excludedParts || excludedParts.length === 0) {
       return serverParts
     }
 
-    // Build set of server part IDs
     const serverPartIds = new Set(serverParts.map((p) => p.id))
-
-    // Add excluded parts that aren't on server
     const missingParts = excludedParts.filter((p) => !serverPartIds.has(p.id))
     if (missingParts.length === 0) {
       return serverParts
     }
 
-    // Merge and sort by ID
     const merged = [...serverParts, ...missingParts]
     merged.sort((a, b) => (a.id > b.id ? 1 : -1))
     return merged
@@ -132,29 +121,21 @@ export function SessionContextTab(props: SessionContextTabProps) {
 
   const clearLoadedSnapshot = () => {
     loadedSnapshotCtx.clear()
-    // Also clear UI state when clearing snapshot
     setHidden(new Set<string>())
   }
 
-  // Selection/exclusion state management
-  // Exclusions now use canonical context for three-state persistence
-  // Also keep loadedSnapshotCtx.excluded for backward compatibility with snapshots
   const excluded = createMemo(() => {
-    // Combine canonical context exclusions with snapshot exclusions
     const canonicalExclusions = canonicalContext.getEffectiveExclusions()
     const snapshotExclusions = loadedSnapshotCtx.excluded()
     const combined = new Set([...canonicalExclusions, ...snapshotExclusions])
     return combined
   })
   const setExcluded = loadedSnapshotCtx.setExcluded
-  // Hidden is local UI state only
   const [hidden, setHidden] = createSignal<Set<string>>(new Set())
   const [showHidden, setShowHidden] = createSignal(false)
-  // Compaction selection - parts selected to be compacted (local UI state)
   const [compactSelection, setCompactSelection] = createSignal<Set<string>>(new Set())
 
   const toggleExcluded = (partId: string) => {
-    // Use canonical context for toggle
     if (canonicalContext.isForceExcluded(partId)) {
       canonicalContext.setInclude(partId)
     } else {
@@ -205,7 +186,6 @@ export function SessionContextTab(props: SessionContextTabProps) {
   const hideAll = () => setHidden(new Set<string>(getAllPartIds()))
   const showAll = () => setHidden(new Set<string>())
 
-  // Three-state accessors - delegate to canonical context
   const getItemState = (partId: string): ItemState => {
     return canonicalContext.getState(partId)
   }
@@ -218,7 +198,6 @@ export function SessionContextTab(props: SessionContextTabProps) {
     return canonicalContext.isForceExcluded(partId)
   }
 
-  // Three-state mutations - delegate to canonical context
   const setInclude = (partId: string) => {
     canonicalContext.setInclude(partId)
   }
@@ -227,9 +206,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
     canonicalContext.setExclude(partId)
   }
 
-  // Double-minus archive flow - when clicking exclude on an already excluded item
   const handleDoubleExclude = (partId: string) => {
-    // Find the part and its message
     let foundPart: Part | undefined
     let foundMessage: Message | undefined
 
@@ -248,7 +225,6 @@ export function SessionContextTab(props: SessionContextTabProps) {
     const sessionInfo = props.info()
 
     const handleArchive = () => {
-      // Add to archive
       archive.addManyToArchive([
         {
           part: foundPart!,
@@ -257,7 +233,6 @@ export function SessionContextTab(props: SessionContextTabProps) {
           sessionName: sessionInfo?.title,
         },
       ])
-      // Hide the item from the context list (it's now archived)
       setHidden((prev) => new Set([...prev, partId]))
       dialog.close()
     }
@@ -310,7 +285,6 @@ export function SessionContextTab(props: SessionContextTabProps) {
     clearCompactSelection,
   }
 
-  // Context State Management handlers
   const sessionID = () => params.id ?? ""
   const sessionName = () => props.info()?.title ?? sessionID() ?? "Session"
 
@@ -365,10 +339,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
 
   const cost = createMemo(() => {
     const total = getMessages().reduce((sum, x) => sum + (x.role === "assistant" ? x.cost : 0), 0)
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(total)
+    return usd().format(total)
   })
 
   const projectedCost = createMemo(() => {
@@ -415,7 +386,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
   })
 
   const systemPrompt = createMemo(() => {
-    const msg = props.visibleUserMessages().findLast((m) => !!m.system)
+    const msg = findLast(props.visibleUserMessages(), (m) => !!m.system)
     const system = msg?.system
     if (!system) return
     const trimmed = system.trim()
@@ -426,31 +397,30 @@ export function SessionContextTab(props: SessionContextTabProps) {
   const number = (value: number | null | undefined) => {
     if (value === undefined) return "—"
     if (value === null) return "—"
-    return value.toLocaleString()
+    return value.toLocaleString(language.locale())
   }
 
   const percent = (value: number | null | undefined) => {
     if (value === undefined) return "—"
     if (value === null) return "—"
-    return value.toString() + "%"
+    return value.toLocaleString(language.locale()) + "%"
   }
 
   const time = (value: number | undefined) => {
     if (!value) return "—"
-    return DateTime.fromMillis(value).toLocaleString(DateTime.DATETIME_MED)
+    return DateTime.fromMillis(value).setLocale(language.locale()).toLocaleString(DateTime.DATETIME_MED)
   }
 
   const providerLabel = createMemo(() => {
     const c = ctx()
     if (!c) return "—"
-    return c.provider?.name ?? c.message.providerID
+    return c.providerLabel
   })
 
   const modelLabel = createMemo(() => {
     const c = ctx()
     if (!c) return "—"
-    if (c.model?.name) return c.model.name
-    return c.message.modelID
+    return c.modelLabel
   })
 
   const breakdown = createMemo(
@@ -509,7 +479,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
           return [
             {
               key: "system",
-              label: "System",
+              label: language.t("context.breakdown.system"),
               tokens: tokens.system,
               width: pct(tokens.system),
               percent: pctLabel(tokens.system),
@@ -517,7 +487,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
             },
             {
               key: "user",
-              label: "User",
+              label: language.t("context.breakdown.user"),
               tokens: tokens.user,
               width: pct(tokens.user),
               percent: pctLabel(tokens.user),
@@ -525,7 +495,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
             },
             {
               key: "assistant",
-              label: "Assistant",
+              label: language.t("context.breakdown.assistant"),
               tokens: tokens.assistant,
               width: pct(tokens.assistant),
               percent: pctLabel(tokens.assistant),
@@ -533,7 +503,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
             },
             {
               key: "tool",
-              label: "Tool Calls",
+              label: language.t("context.breakdown.tool"),
               tokens: tokens.tool,
               width: pct(tokens.tool),
               percent: pctLabel(tokens.tool),
@@ -541,7 +511,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
             },
             {
               key: "other",
-              label: "Other",
+              label: language.t("context.breakdown.other"),
               tokens: tokens.other,
               width: pct(tokens.other),
               percent: pctLabel(tokens.other),
@@ -612,7 +582,9 @@ export function SessionContextTab(props: SessionContextTabProps) {
       }
     })
 
-    return <Code file={file()} overflow="wrap" class="select-text" />
+    return (
+      <Code file={file()} overflow="wrap" class="select-text" onRendered={() => requestAnimationFrame(restoreScroll)} />
+    )
   }
 
   function RawMessage(msgProps: { message: Message }) {
@@ -857,18 +829,12 @@ export function SessionContextTab(props: SessionContextTabProps) {
   let frame: number | undefined
   let pending: { x: number; y: number } | undefined
 
-  const restoreScroll = (retries = 0) => {
+  const restoreScroll = () => {
     const el = scroll
     if (!el) return
 
     const s = props.view()?.scroll("context")
     if (!s) return
-
-    // Wait for content to be scrollable - content may not have rendered yet
-    if (el.scrollHeight <= el.clientHeight && retries < 10) {
-      requestAnimationFrame(() => restoreScroll(retries + 1))
-      return
-    }
 
     if (el.scrollTop !== s.y) el.scrollTop = s.y
     if (el.scrollLeft !== s.x) el.scrollLeft = s.x
@@ -924,7 +890,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
 
         <Show when={breakdown().length > 0}>
           <div class="flex flex-col gap-2">
-            <div class="text-12-regular text-text-weak">Context Breakdown</div>
+            <div class="text-12-regular text-text-weak">{language.t("context.breakdown.title")}</div>
             <div class="h-2 w-full rounded-full bg-surface-base overflow-hidden flex">
               <For each={breakdown()}>
                 {(segment) => (
@@ -949,16 +915,14 @@ export function SessionContextTab(props: SessionContextTabProps) {
                 )}
               </For>
             </div>
-            <div class="hidden text-11-regular text-text-weaker">
-              Approximate breakdown of input tokens. "Other" includes tool definitions and overhead.
-            </div>
+            <div class="hidden text-11-regular text-text-weaker">{language.t("context.breakdown.note")}</div>
           </div>
         </Show>
 
         <Show when={systemPrompt()}>
           {(prompt) => (
             <div class="flex flex-col gap-2">
-              <div class="text-12-regular text-text-weak">System Prompt</div>
+              <div class="text-12-regular text-text-weak">{language.t("context.systemPrompt.title")}</div>
               <div class="border border-border-base rounded-md bg-surface-base px-3 py-2">
                 <Markdown text={prompt()} class="text-12-regular" />
               </div>
@@ -1010,7 +974,6 @@ export function SessionContextTab(props: SessionContextTabProps) {
             </div>
           </div>
 
-          {/* Selection/Exclusion Controls */}
           <div data-component="context-selection-controls">
             <div data-slot="selection-summary">
               <Show when={excluded().size > 0}>

@@ -45,7 +45,7 @@ export namespace SessionRelevanceCompaction {
     const usable = resolveUsable({ model: input.model, reserve })
     if (usable <= 0) return input.messages
 
-    const tokens = estimateMessages(input.messages)
+    const tokens = estimateMessages(input.messages, input.model)
     const pressure = tokens / usable
     const trigger = relevance.trigger ?? target
     if (pressure < trigger) return input.messages
@@ -79,7 +79,7 @@ export namespace SessionRelevanceCompaction {
       llmInput: input,
       agent: judgeAgent,
     })
-    const firstTokens = estimateMessages(firstResult)
+    const firstTokens = estimateMessages(firstResult, input.model)
     if (firstTokens <= usable * target) return firstResult
 
     const reducedRecent = Math.max(1, recent - 1)
@@ -134,8 +134,8 @@ export namespace SessionRelevanceCompaction {
     return input.messages.findLast((msg) => msg.info.role === "user")?.info as MessageV2.User | undefined
   }
 
-  function estimateMessages(messages: MessageV2.WithParts[]) {
-    const modelMessages = MessageV2.toModelMessage(messages)
+  function estimateMessages(messages: MessageV2.WithParts[], model: Provider.Model) {
+    const modelMessages = MessageV2.toModelMessages(messages, model)
     return Token.estimate(JSON.stringify(modelMessages))
   }
 
@@ -160,7 +160,7 @@ export namespace SessionRelevanceCompaction {
   }
 
   async function setupAnchor(input: { input: Input; user: MessageV2.User; agent: Agent.Info }) {
-    const modelMessages = MessageV2.toModelMessage(input.input.messages)
+    const modelMessages = MessageV2.toModelMessages(input.input.messages, input.input.model)
     if (modelMessages.length === 0) return ""
     const result = await LLM.stream({
       agent: input.agent,
@@ -221,7 +221,7 @@ export namespace SessionRelevanceCompaction {
     agent: Agent.Info
     message: MessageV2.WithParts
   }): Promise<Decision> {
-    const payload = formatMessage(input.message)
+    const payload = formatMessage(input.message, input.input.model)
     const prompt = [prompts.judge, "SCOPE ANCHOR:", input.anchor || "(none)", "MESSAGE:", payload].join("\n\n")
 
     const result = await LLM.stream({
@@ -249,8 +249,8 @@ export namespace SessionRelevanceCompaction {
     return { decision: parsed.decision, confidence }
   }
 
-  function formatMessage(message: MessageV2.WithParts) {
-    const modelMessages = MessageV2.toModelMessage([message])
+  function formatMessage(message: MessageV2.WithParts, model: Provider.Model) {
+    const modelMessages = MessageV2.toModelMessages([message], model)
     return JSON.stringify(modelMessages[0] ?? {}, null, 2)
   }
 
@@ -306,7 +306,7 @@ export namespace SessionRelevanceCompaction {
       if (!parentMsg) continue
 
       const tokens = Token.estimate(
-        JSON.stringify(MessageV2.toModelMessage([parentMsg])),
+        JSON.stringify(MessageV2.toModelMessages([parentMsg], input.llmInput.model)),
       )
       if (tokens <= USER_MSG_SHORT_TOKENS) {
         kept.add(parentID)
