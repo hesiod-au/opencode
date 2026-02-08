@@ -348,7 +348,8 @@ Now, analyze the project and create the task breakdown based on what the user ha
     for (let i = (titleLineIdx >= 0 ? titleLineIdx + 1 : 0); i < lines.length; i++) {
       const trimmed = lines[i].trim()
       if (trimmed.length === 0) continue
-      if (trimmed.startsWith("#") || trimmed.startsWith("|")) break
+      if (trimmed.startsWith("#")) continue
+      if (trimmed.startsWith("|")) break
       result.description = trimmed
       break
     }
