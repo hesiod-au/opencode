@@ -10,6 +10,7 @@ import { LLM } from "./llm"
 export namespace SessionRelevanceCompaction {
   const CONFIDENCE_MIN = 0.7
   const DEFAULT_RECENT = 4
+  const USER_MSG_SHORT_TOKENS = 200
 
   type Decision = {
     decision: "keep" | "drop"
@@ -70,11 +71,13 @@ export namespace SessionRelevanceCompaction {
       decisions: new Map(),
       recheck: false,
     })
-    const firstResult = applyDecisions({
+    const firstResult = await applyDecisions({
       messages: input.messages,
       pinned,
       recentStart: firstStart,
       decisions: firstPass,
+      llmInput: input,
+      agent: judgeAgent,
     })
     const firstTokens = estimateMessages(firstResult)
     if (firstTokens <= usable * target) return firstResult
@@ -91,11 +94,13 @@ export namespace SessionRelevanceCompaction {
       decisions: firstPass,
       recheck: true,
     })
-    return applyDecisions({
+    return await applyDecisions({
       messages: input.messages,
       pinned,
       recentStart: secondStart,
       decisions: secondPass,
+      llmInput: input,
+      agent: judgeAgent,
     })
   }
 
@@ -259,19 +264,115 @@ export namespace SessionRelevanceCompaction {
     return { decision, confidence }
   }
 
-  function applyDecisions(input: {
+  async function applyDecisions(input: {
     messages: MessageV2.WithParts[]
     pinned: Set<string>
     recentStart: number
     decisions: Map<string, Decision>
-  }) {
-    return input.messages.filter((msg, index) => {
-      if (input.pinned.has(msg.info.id)) return true
-      if (index >= input.recentStart) return true
-      const decision = input.decisions.get(msg.info.id)
-      if (!decision) return true
-      if (decision.confidence < CONFIDENCE_MIN) return true
-      return decision.decision === "keep"
+    llmInput: Input
+    agent: Agent.Info
+  }): Promise<MessageV2.WithParts[]> {
+    // Phase 1: classify each message as kept or dropped
+    const kept = new Set<string>()
+    const dropped = new Set<string>()
+    for (const [index, msg] of input.messages.entries()) {
+      const dominated =
+        !input.pinned.has(msg.info.id) &&
+        index < input.recentStart &&
+        (() => {
+          const d = input.decisions.get(msg.info.id)
+          return d && d.confidence >= CONFIDENCE_MIN && d.decision === "drop"
+        })()
+      if (dominated) {
+        dropped.add(msg.info.id)
+      } else {
+        kept.add(msg.info.id)
+      }
+    }
+
+    // Phase 2: rescue dropped user messages whose assistant
+    // reply is kept (preserves turn pairing)
+    const msgById = new Map(
+      input.messages.map((m) => [m.info.id, m]),
+    )
+    const substitutions = new Map<string, MessageV2.WithParts>()
+
+    for (const msg of input.messages) {
+      if (msg.info.role !== "assistant") continue
+      if (!kept.has(msg.info.id)) continue
+      const parentID = (msg.info as MessageV2.Assistant).parentID
+      if (!dropped.has(parentID)) continue
+      const parentMsg = msgById.get(parentID)
+      if (!parentMsg) continue
+
+      const tokens = Token.estimate(
+        JSON.stringify(MessageV2.toModelMessage([parentMsg])),
+      )
+      if (tokens <= USER_MSG_SHORT_TOKENS) {
+        kept.add(parentID)
+        dropped.delete(parentID)
+      } else {
+        const summarised = await summariseUserMessage(
+          parentMsg,
+          input.llmInput,
+          input.agent,
+        )
+        substitutions.set(parentID, summarised)
+        kept.add(parentID)
+        dropped.delete(parentID)
+      }
+    }
+
+    // Phase 3: build result with substitutions
+    return input.messages
+      .filter((msg) => kept.has(msg.info.id))
+      .map((msg) => substitutions.get(msg.info.id) ?? msg)
+  }
+
+  async function summariseUserMessage(
+    msg: MessageV2.WithParts,
+    input: Input,
+    agent: Agent.Info,
+  ): Promise<MessageV2.WithParts> {
+    const text = msg.parts
+      .filter((p): p is MessageV2.TextPart => p.type === "text")
+      .map((p) => p.text)
+      .join("\n")
+
+    if (!text.trim()) return msg
+
+    const result = await LLM.stream({
+      agent,
+      user: msg.info as MessageV2.User,
+      system: [],
+      small: true,
+      tools: {},
+      model: input.model,
+      abort: input.abort,
+      sessionID: input.sessionID,
+      retries: 1,
+      messages: [
+        {
+          role: "user",
+          content:
+            "Summarise the following user message in 1-2 concise " +
+            "sentences, preserving the key intent and any specific " +
+            "requirements:\n\n" +
+            text,
+        },
+      ],
     })
+
+    const summary = (await result.text).trim()
+    if (!summary) return msg
+
+    return {
+      info: msg.info,
+      parts: msg.parts.map((p) =>
+        p.type === "text"
+          ? { ...p, text: "[Summarised] " + summary }
+          : p,
+      ),
+    }
   }
 }

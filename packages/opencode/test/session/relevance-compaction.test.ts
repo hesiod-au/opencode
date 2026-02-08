@@ -166,6 +166,96 @@ describe("session.compaction.relevance", () => {
     })
   })
 
+  test("rescues short user message when its assistant reply is kept", async () => {
+    await using tmp = await tmpdir({
+      config: {
+        compaction: {
+          relevance: {
+            target: 0.6,
+            trigger: 0.1,
+            recent: 4,
+          },
+        },
+      } as any,
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        // anchor, DROP user1, KEEP assistant1
+        resetQueue(["anchor", "DECISION: DROP\nCONFIDENCE: 0.9", "DECISION: KEEP\nCONFIDENCE: 0.9"])
+        const model = createModel({ context: 1000, output: 100 })
+        const result = await SessionRelevanceCompaction.compact({
+          sessionID: "session",
+          messages: buildTurns(5),
+          model,
+          agent: "task",
+          mode: "build",
+          abort: new AbortController().signal,
+        })
+        const ids = result.map((msg) => msg.info.id)
+        // assistant kept → parent user must also be present
+        expect(ids).toContain("a1")
+        expect(ids).toContain("u1")
+      },
+    })
+  })
+
+  test("summarises long user message when its assistant reply is kept", async () => {
+    await using tmp = await tmpdir({
+      config: {
+        compaction: {
+          relevance: {
+            target: 0.6,
+            trigger: 0.1,
+            recent: 4,
+          },
+        },
+      } as any,
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        // Build messages with a very long first user message
+        const longText = "x ".repeat(500) // well over 200 tokens
+        const messages: MessageV2.WithParts[] = [
+          userMessage("u1", longText),
+          assistantMessage("a1", "u1", "assistant-1"),
+        ]
+        // Pad with 4 more turns so recent window covers turns 2-5
+        for (let i = 2; i <= 5; i++) {
+          messages.push(userMessage(`u${i}`, `user-${i}`))
+          messages.push(assistantMessage(`a${i}`, `u${i}`, `assistant-${i}`))
+        }
+
+        // anchor, DROP user1, KEEP assistant1, summary LLM call
+        resetQueue([
+          "anchor",
+          "DECISION: DROP\nCONFIDENCE: 0.9",
+          "DECISION: KEEP\nCONFIDENCE: 0.9",
+          "Short summary of the long message",
+        ])
+        const model = createModel({ context: 1000, output: 100 })
+        const result = await SessionRelevanceCompaction.compact({
+          sessionID: "session",
+          messages,
+          model,
+          agent: "task",
+          mode: "build",
+          abort: new AbortController().signal,
+        })
+        const ids = result.map((msg) => msg.info.id)
+        expect(ids).toContain("u1")
+        expect(ids).toContain("a1")
+
+        // The user message text should be the summarised version
+        const rescuedUser = result.find((m) => m.info.id === "u1")!
+        const textParts = rescuedUser.parts.filter((p) => p.type === "text") as MessageV2.TextPart[]
+        expect(textParts[0].text).toContain("[Summarised]")
+        expect(textParts[0].text).toContain("Short summary of the long message")
+      },
+    })
+  })
+
   test("keeps messages when judge confidence is below threshold", async () => {
     await using tmp = await tmpdir({
       config: {
