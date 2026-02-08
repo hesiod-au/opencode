@@ -146,6 +146,29 @@ export namespace PlanningAgent {
       // Write task list
       await TaskList.write(paths.taskListPath, plan)
 
+      // Rename parent session to reflect the plan's overall aim
+      if (parentSessionId) {
+        const session = await Session.get(parentSessionId)
+        if (session && Session.isDefaultTitle(session.title)) {
+          const shorten = (v: string) =>
+            v.length > 100 ? v.substring(0, 97) + "..." : v
+          const planTitle =
+            (plan.description?.trim()) ||
+            (plan.title && plan.title !== "Task List"
+              ? plan.title.trim()
+              : undefined)
+          if (planTitle) {
+            await Session.update(parentSessionId, (draft) => {
+              draft.title = shorten(planTitle)
+            })
+            log.info("renamed parent session from plan", {
+              parentSessionId,
+              title: shorten(planTitle),
+            })
+          }
+        }
+      }
+
       // Write individual task files with full descriptions
       for (const task of plan.tasks) {
         // Use the parsed description if available, otherwise fall back to title
@@ -316,6 +339,18 @@ Now, analyze the project and create the task breakdown based on what the user ha
     const titleMatch = response.match(/^#\s+(.+)$/m)
     if (titleMatch) {
       result.title = titleMatch[1]
+    }
+
+    // Extract description: first non-empty line after the title
+    // that isn't a heading or a table row
+    const lines = response.split("\n")
+    const titleLineIdx = lines.findIndex((l) => /^#\s+/.test(l.trim()))
+    for (let i = (titleLineIdx >= 0 ? titleLineIdx + 1 : 0); i < lines.length; i++) {
+      const trimmed = lines[i].trim()
+      if (trimmed.length === 0) continue
+      if (trimmed.startsWith("#") || trimmed.startsWith("|")) break
+      result.description = trimmed
+      break
     }
 
     // Look for the table
