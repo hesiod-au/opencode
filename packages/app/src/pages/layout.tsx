@@ -373,7 +373,7 @@ export default function Layout(props: ParentProps) {
     const bUpdated = b.time.updated ?? b.time.created
     const aRecent = aUpdated > oneMinuteAgo
     const bRecent = bUpdated > oneMinuteAgo
-    if (aRecent && bRecent) return a.id.localeCompare(b.id)
+    if (aRecent && bRecent) return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
     if (aRecent && !bRecent) return -1
     if (!aRecent && bRecent) return 1
     return bUpdated - aUpdated
@@ -564,7 +564,7 @@ export default function Layout(props: ParentProps) {
           .map((x) => x.info)
           .filter((m) => !!m?.id)
           .slice()
-          .sort((a, b) => a.id.localeCompare(b.id))
+          .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 
         batch(() => {
           setStore("message", sessionID, reconcile(next, { key: "id" }))
@@ -577,7 +577,7 @@ export default function Layout(props: ParentProps) {
                 message.parts
                   .filter((p) => !!p?.id)
                   .slice()
-                  .sort((a, b) => a.id.localeCompare(b.id)),
+                  .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
                 { key: "id" },
               ),
             )
@@ -1049,7 +1049,27 @@ export default function Layout(props: ParentProps) {
     )
   }
 
-  const SessionItem = (props: { session: Session; slug: string; mobile?: boolean; dense?: boolean }): JSX.Element => {
+  // Helper to group sessions with their children
+  const groupSessionsWithChildren = (
+    sessions: Session[],
+    allSessions: Session[],
+    sortFn: (a: Session, b: Session) => number,
+  ): Array<{ session: Session; depth: number }> => {
+    const result: Array<{ session: Session; depth: number }> = []
+    const rootSessions = sessions.filter((s) => !s.parentID).toSorted(sortFn)
+
+    for (const session of rootSessions) {
+      result.push({ session, depth: 0 })
+      // Find children of this session
+      const children = allSessions.filter((s) => s.parentID === session.id).toSorted(sortFn)
+      for (const child of children) {
+        result.push({ session: child, depth: 1 })
+      }
+    }
+    return result
+  }
+
+  const SessionItem = (props: { session: Session; slug: string; mobile?: boolean; dense?: boolean; depth?: number }): JSX.Element => {
     const notification = useNotification()
     const notifications = createMemo(() => notification.session.unseen(props.session.id))
     const hasError = createMemo(() => notifications().some((n) => n.type === "error"))
@@ -1083,11 +1103,15 @@ export default function Layout(props: ParentProps) {
       return agent?.color
     })
 
+    const depth = () => props.depth ?? 0
+    const isChild = () => depth() > 0
+
     return (
       <div
         data-session-id={props.session.id}
-        class="group/session relative w-full rounded-md cursor-default transition-colors pl-2 pr-3
-               hover:bg-surface-raised-base-hover focus-within:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active"
+        class={`group/session relative w-full rounded-md cursor-default transition-colors pr-3
+               hover:bg-surface-raised-base-hover focus-within:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active
+               ${isChild() ? "pl-6 border-l-2 border-border-base ml-4" : "pl-2"}`}
       >
         <Tooltip placement={props.mobile ? "bottom" : "right"} value={props.session.title} gutter={16} openDelay={1000}>
           <A
@@ -1098,12 +1122,12 @@ export default function Layout(props: ParentProps) {
           >
             <div class="flex items-center gap-1 w-full">
               <div
-                class="shrink-0 size-6 flex items-center justify-center"
+                class={`shrink-0 flex items-center justify-center ${isChild() ? "size-5" : "size-6"}`}
                 style={{ color: tint() ?? "var(--icon-interactive-base)" }}
               >
-                <Switch fallback={<Icon name="dash" size="small" class="text-icon-weak" />}>
+                <Switch fallback={<Icon name={isChild() ? "chevron-right" : "dash"} size="small" class="text-icon-weak" />}>
                   <Match when={isWorking()}>
-                    <Spinner class="size-[15px]" />
+                    <Spinner class={isChild() ? "size-[13px]" : "size-[15px]"} />
                   </Match>
                   <Match when={hasPermissions()}>
                     <div class="size-1.5 rounded-full bg-surface-warning-strong" />
@@ -1200,11 +1224,11 @@ export default function Layout(props: ParentProps) {
     const sortable = createSortable(props.directory)
     const [workspaceStore, setWorkspaceStore] = globalSync.child(props.directory)
     const slug = createMemo(() => base64Encode(props.directory))
+    const allDirSessions = createMemo(() =>
+      workspaceStore.session.filter((session) => session.directory === workspaceStore.path.directory),
+    )
     const sessions = createMemo(() =>
-      workspaceStore.session
-        .filter((session) => session.directory === workspaceStore.path.directory)
-        .filter((session) => !session.parentID)
-        .toSorted(sortSessions),
+      groupSessionsWithChildren(allDirSessions(), allDirSessions(), sortSessions),
     )
     const local = createMemo(() => props.directory === props.project.worktree)
     const workspaceValue = createMemo(() => {
@@ -1305,7 +1329,7 @@ export default function Layout(props: ParentProps) {
                 <SessionSkeleton />
               </Show>
               <For each={sessions()}>
-                {(session) => <SessionItem session={session} slug={slug()} mobile={props.mobile} />}
+                {(item) => <SessionItem session={item.session} slug={slug()} mobile={props.mobile} depth={item.depth} />}
               </For>
               <Show when={hasMore()}>
                 <div class="relative w-full py-1">
@@ -1442,12 +1466,10 @@ export default function Layout(props: ParentProps) {
   const LocalWorkspace = (props: { project: LocalProject; mobile?: boolean }): JSX.Element => {
     const [workspaceStore, setWorkspaceStore] = globalSync.child(props.project.worktree)
     const slug = createMemo(() => base64Encode(props.project.worktree))
-    const sessions = createMemo(() =>
-      workspaceStore.session
-        .filter((session) => session.directory === workspaceStore.path.directory)
-        .filter((session) => !session.parentID)
-        .toSorted(sortSessions),
+    const allDirSessions = createMemo(() =>
+      workspaceStore.session.filter((session) => session.directory === workspaceStore.path.directory),
     )
+    const sessions = createMemo(() => groupSessionsWithChildren(allDirSessions(), allDirSessions(), sortSessions))
     const loading = createMemo(() => workspaceStore.status !== "complete" && sessions().length === 0)
     const hasMore = createMemo(() => workspaceStore.sessionTotal > workspaceStore.session.length)
     const loadMore = async () => {
@@ -1468,7 +1490,7 @@ export default function Layout(props: ParentProps) {
             <SessionSkeleton />
           </Show>
           <For each={sessions()}>
-            {(session) => <SessionItem session={session} slug={slug()} mobile={props.mobile} />}
+            {(item) => <SessionItem session={item.session} slug={slug()} mobile={props.mobile} depth={item.depth} />}
           </For>
           <Show when={hasMore()}>
             <div class="relative w-full py-1">

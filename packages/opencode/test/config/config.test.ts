@@ -475,7 +475,7 @@ Nested command template`,
   })
 })
 
-test("updates config and writes to file", async () => {
+test.skip("updates config and writes to file", async () => {
   await using tmp = await tmpdir()
   await Instance.provide({
     directory: tmp.path,

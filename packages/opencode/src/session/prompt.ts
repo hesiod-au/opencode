@@ -45,6 +45,8 @@ import { SessionStatus } from "./status"
 import { LLM } from "./llm"
 import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
+import { SessionRelevanceCompaction } from "./relevance-compaction"
+import { Collision } from "@/task-mode/collision"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -412,11 +414,13 @@ export namespace SessionPrompt {
 
       step++
       if (step === 1)
-        ensureTitle({
+        void ensureTitle({
           session,
           modelID: lastUser.model.modelID,
           providerID: lastUser.model.providerID,
           history: msgs,
+        }).catch((error) => {
+          log.error("failed to ensure title", { error, sessionID })
         })
 
       const model = await Provider.getModel(lastUser.model.providerID, lastUser.model.modelID)
@@ -700,6 +704,17 @@ export namespace SessionPrompt {
 
       await Plugin.trigger("experimental.chat.messages.transform", {}, { messages: sessionMessages })
 
+      const relevanceMessages = Collision.isTaskSession(sessionID)
+        ? await SessionRelevanceCompaction.compact({
+            sessionID,
+            messages: sessionMessages,
+            model,
+            agent: "task",
+            mode: agent.name,
+            abort,
+          })
+        : sessionMessages
+
       const result = await processor.process({
         user: lastUser,
         agent,
@@ -707,7 +722,7 @@ export namespace SessionPrompt {
         sessionID,
         system: [...(await SystemPrompt.environment()), ...(await SystemPrompt.custom())],
         messages: [
-          ...MessageV2.toModelMessage(sessionMessages),
+          ...MessageV2.toModelMessage(relevanceMessages),
           ...(isLastStep
             ? [
                 {
@@ -1885,18 +1900,50 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           : MessageV2.toModelMessage(contextMessages)),
       ],
     })
-    const text = await result.text.catch((err) => log.error("failed to generate title", { error: err }))
-    if (text)
-      return Session.update(input.session.id, (draft) => {
-        const cleaned = text
-          .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
-          .split("\n")
-          .map((line) => line.trim())
-          .find((line) => line.length > 0)
-        if (!cleaned) return
 
-        const title = cleaned.length > 100 ? cleaned.substring(0, 97) + "..." : cleaned
-        draft.title = title
-      })
+    const text = await iife(async () => {
+      // ai SDK stream result exposes a Promise<string> on `.text`.
+      return await result.text
+    }).catch((error) => {
+      log.error("failed to generate title", { error })
+      return undefined
+    })
+
+    const shorten = (value: string) => (value.length > 100 ? value.substring(0, 97) + "..." : value)
+
+    const cleaned = iife(() => {
+      if (typeof text !== "string") return
+      const line = text
+        .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
+        .split("\n")
+        .map((entry) => entry.trim())
+        .find((entry) => entry.length > 0)
+      if (!line) return
+      return shorten(line)
+    })
+
+    const fallback = iife(() => {
+      const subtaskPrompt = subtaskParts
+        .map((part) => part.prompt)
+        .join("\n")
+        .trim()
+      if (subtaskPrompt) return shorten(subtaskPrompt)
+      const textParts = firstRealUser.parts.filter(
+        (part): part is MessageV2.TextPart =>
+          part.type === "text" && !("synthetic" in part && Boolean(part.synthetic)) && !!part.text.trim(),
+      )
+      const content = textParts
+        .map((part) => part.text.trim())
+        .join("\n")
+        .trim()
+      if (!content) return
+      return shorten(content)
+    })
+
+    const title = cleaned ?? fallback
+    if (!title) return
+    return Session.update(input.session.id, (draft) => {
+      draft.title = title
+    })
   }
 }

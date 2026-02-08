@@ -57,7 +57,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             .map((x) => x.info)
             .filter((m) => !!m?.id)
             .slice()
-            .sort((a, b) => a.id.localeCompare(b.id))
+            .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 
           batch(() => {
             setStore("message", sessionID, reconcile(next, { key: "id" }))
@@ -70,7 +70,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                   message.parts
                     .filter((p) => !!p?.id)
                     .slice()
-                    .sort((a, b) => a.id.localeCompare(b.id)),
+                    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
                   { key: "id" },
                 ),
               )
@@ -128,7 +128,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               draft.part[input.messageID] = input.parts
                 .filter((p) => !!p?.id)
                 .slice()
-                .sort((a, b) => a.id.localeCompare(b.id))
+                .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
             }),
           )
         },
@@ -236,7 +236,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             const sessions = (x.data ?? [])
               .filter((s) => !!s?.id)
               .slice()
-              .sort((a, b) => a.id.localeCompare(b.id))
+              .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
               .slice(0, store.limit)
             setStore("session", reconcile(sessions, { key: "id" }))
           })

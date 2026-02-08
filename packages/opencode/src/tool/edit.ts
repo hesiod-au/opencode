@@ -16,6 +16,9 @@ import { Filesystem } from "../util/filesystem"
 import { Instance } from "../project/instance"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectory } from "./external-directory"
+import { Collision } from "../task-mode/collision"
+import { TaskList } from "../task-mode/task-list"
+import { TaskAgent } from "../task-mode/task-agent"
 
 const MAX_DIAGNOSTICS_PER_FILE = 20
 
@@ -42,6 +45,29 @@ export const EditTool = Tool.define("edit", {
 
     const filePath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
     await assertExternalDirectory(ctx, filePath)
+
+    // Check for task mode collision if this session is a task agent
+    const taskContext = Collision.getTaskContextForSession(ctx.sessionID)
+    if (taskContext) {
+      // Read task list to get all tasks for collision checking
+      const taskList = await TaskList.read(taskContext.paths.taskListPath)
+      if (taskList) {
+        const collision = await Collision.reserveFile(taskContext.taskId, filePath, taskList.tasks)
+        if (collision.hasCollision) {
+          // Pause this task due to collision
+          await TaskAgent.pause(
+            taskContext.taskId,
+            taskContext.paths,
+            `File collision detected with task ${collision.collidingTaskId}`,
+            collision.collidingTaskId,
+            collision.collidingFile,
+          )
+          throw new Error(
+            `Cannot edit ${filePath}: file is being edited by task ${collision.collidingTaskId}. This task has been paused.`,
+          )
+        }
+      }
+    }
 
     let diff = ""
     let contentOld = ""

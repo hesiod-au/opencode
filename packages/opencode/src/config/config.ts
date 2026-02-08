@@ -41,7 +41,7 @@ export namespace Config {
 
     // Load remote/well-known config first as the base layer (lowest precedence)
     // This allows organizations to provide default configs that users can override
-    let result: Info = {}
+    let result: Info = Info.parse({})
     for (const [key, value] of Object.entries(auth)) {
       if (value.type === "wellknown") {
         process.env[value.key] = value.token
@@ -866,7 +866,30 @@ export namespace Config {
     })
   export type Provider = z.infer<typeof Provider>
 
+  const Ratio = z.number().min(0).max(1)
+
+  const CompactionRelevance = z
+    .object({
+      agent: z
+        .record(z.string(), z.boolean())
+        .optional()
+        .default(() => ({ task: true }))
+        .describe("Agent enablement for relevance compaction"),
+      mode: z.record(z.string(), z.boolean()).optional().describe("Mode enablement for relevance compaction"),
+      trigger: Ratio.optional().describe("Context usage ratio to trigger relevance compaction"),
+      target: Ratio.optional().default(0.6).describe("Target context usage ratio after compaction"),
+      model: z
+        .record(z.string(), Ratio)
+        .optional()
+        .default(() => ({ codex: 0.3 }))
+        .describe("Model-specific target ratios (keys may be provider/model or model id)"),
+      recent: z.number().int().positive().optional().describe("Number of recent messages to keep"),
+      reserve: z.number().int().positive().optional().describe("Reserved output tokens"),
+    })
+    .strict()
+
   export const Info = z
+
     .object({
       $schema: z.string().optional().describe("JSON schema reference for configuration validation"),
       theme: z.string().optional().describe("Theme name to use for the interface"),
@@ -1026,8 +1049,53 @@ export namespace Config {
         .object({
           auto: z.boolean().optional().describe("Enable automatic compaction when context is full (default: true)"),
           prune: z.boolean().optional().describe("Enable pruning of old tool outputs (default: true)"),
+          relevance: CompactionRelevance.optional().default(() => ({
+            agent: { task: true },
+            target: 0.6,
+            model: { codex: 0.3 },
+          })),
         })
-        .optional(),
+        .default(() => ({
+          relevance: {
+            agent: { task: true },
+            target: 0.6,
+            model: { codex: 0.3 },
+          },
+        })),
+      taskMode: z
+        .object({
+          enabled: z.boolean().optional().describe("Enable task mode for multi-agent orchestration"),
+          listPath: z
+            .string()
+            .optional()
+            .describe("Path to the task list markdown file (default: .opencode/tasks/default/task_list.md)"),
+          requirePlanConfirmation: z
+            .boolean()
+            .optional()
+            .describe("Require user confirmation before executing generated plans"),
+          agentLaunchStaggerSeconds: z
+            .number()
+            .optional()
+            .describe("Seconds to wait between launching task agents (default: 5)"),
+          pollIntervalMs: z
+            .number()
+            .optional()
+            .describe("Milliseconds between polling for task list changes (default: 1000)"),
+          maxConcurrentTasks: z
+            .number()
+            .optional()
+            .describe("Maximum number of task agents to run concurrently (default: 3)"),
+          tddMode: z
+            .boolean()
+            .optional()
+            .describe("Enable TDD mode: write tests after planning, run tests before completing tasks"),
+          maxTestRetries: z
+            .number()
+            .optional()
+            .describe("Maximum test/fix iterations before failing a task in TDD mode (default: 10)"),
+        })
+        .optional()
+        .describe("Task mode configuration for multi-agent orchestration"),
       experimental: z
         .object({
           hook: z
@@ -1082,7 +1150,7 @@ export namespace Config {
 
   export const global = lazy(async () => {
     let result: Info = pipe(
-      {},
+      Info.parse({}),
       mergeDeep(await loadFile(path.join(Global.Path.config, "config.json"))),
       mergeDeep(await loadFile(path.join(Global.Path.config, "opencode.json"))),
       mergeDeep(await loadFile(path.join(Global.Path.config, "opencode.jsonc"))),
@@ -1114,7 +1182,7 @@ export namespace Config {
         if (err.code === "ENOENT") return
         throw new JsonError({ path: filepath }, { cause: err })
       })
-    if (!text) return {}
+    if (!text) return Info.parse({})
     return load(text, filepath)
   }
 
@@ -1237,8 +1305,15 @@ export namespace Config {
     return state().then((x) => x.config)
   }
 
-  export async function update(config: Info) {
-    const filepath = path.join(Instance.directory, "config.json")
+  type DeepPartial<T> = T extends (infer U)[]
+    ? DeepPartial<U>[]
+    : T extends object
+      ? { [K in keyof T]?: DeepPartial<T[K]> }
+      : T
+
+  export async function update(config: DeepPartial<Info>) {
+    // Write to opencode.json to match config loading which looks for opencode.json/opencode.jsonc
+    const filepath = path.join(Instance.directory, "opencode.json")
     const existing = await loadFile(filepath)
     await Bun.write(filepath, JSON.stringify(mergeDeep(existing, config), null, 2))
     await Instance.dispose()

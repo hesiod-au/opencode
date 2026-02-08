@@ -29,3 +29,6 @@ logs/
 
 .claude/
 wip_docs/
+
+.opencode/
+auth.json

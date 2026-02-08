@@ -6,9 +6,21 @@
 
 set -e
 
-BACKEND_HOST="0.0.0.0"
+# Load nvm and switch to Node 22 (required for Vite)
+export NVM_DIR="$HOME/.nvm"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+    source "$NVM_DIR/nvm.sh"
+    nvm use 22 --silent || {
+        echo "Node 22 not installed. Installing..."
+        nvm install 22
+        nvm use 22
+    }
+    echo "Using Node $(node --version)"
+fi
+
+BACKEND_HOST="${BACKEND_HOST:-0.0.0.0}"
 BACKEND_PORT="${BACKEND_PORT:-4096}"
-FRONTEND_HOST="0.0.0.0"
+FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
 FRONTEND_PORT="${FRONTEND_PORT:-8888}"
 
 cleanup() {
@@ -21,9 +33,12 @@ trap cleanup SIGINT SIGTERM
 
 echo "Starting backend server on $BACKEND_HOST:$BACKEND_PORT..."
 OPENCODE_PERMISSION='{"*":"allow"}' \
+OPENCODE_ENABLE_EXA=true \
 bun run --cwd packages/opencode --conditions=browser src/index.ts serve \
     --hostname "$BACKEND_HOST" \
-    --port "$BACKEND_PORT" &
+    --port "$BACKEND_PORT" \
+    --cors "http://$FRONTEND_HOST:$FRONTEND_PORT" \
+    --cors "http://localhost:$FRONTEND_PORT" &
 BACKEND_PID=$!
 
 echo "Starting frontend server on $FRONTEND_HOST:$FRONTEND_PORT..."

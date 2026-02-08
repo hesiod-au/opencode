@@ -1269,7 +1269,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           draft.part[messageID] = optimisticParts
             .filter((p) => !!p?.id)
             .slice()
-            .sort((a, b) => a.id.localeCompare(b.id))
+            .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
         }),
       )
     }
@@ -1345,7 +1345,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     let targetSession = session
     const isNewSessionFromOverride = !!messagesOverride
     if (isNewSessionFromOverride) {
-      const newSession = await client.session.create().then((x) => x.data ?? undefined)
+      const newSession = await client.session.create({ parentID: session.id }).then((x) => x.data ?? undefined)
       if (!newSession) {
         showToast({
           title: "Failed to create session",
