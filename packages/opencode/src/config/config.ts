@@ -1428,9 +1428,25 @@ export namespace Config {
   }
 
   export async function update(config: Partial<Info>) {
-    const filepath = path.join(Instance.directory, "config.json")
+    const candidates = ["opencode.jsonc", "opencode.json"]
+    let filepath: string | undefined
+    for (const file of candidates) {
+      const found = await Filesystem.findUp(
+        file,
+        Instance.directory,
+        Instance.worktree,
+      )
+      if (found.length > 0) {
+        filepath = found[0]
+        break
+      }
+    }
+    filepath ??= path.join(Instance.directory, "opencode.json")
     const existing = await loadFile(filepath)
-    await Bun.write(filepath, JSON.stringify(mergeDeep(existing, config), null, 2))
+    await Bun.write(
+      filepath,
+      JSON.stringify(mergeDeep(existing, config), null, 2),
+    )
     await Instance.dispose()
   }
 
