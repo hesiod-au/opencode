@@ -43,7 +43,7 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
   })
 
   const status = createMemo((): "normal" | "warning" | "critical" => {
-    const pct = context()?.percentage
+    const pct = context()?.usage
     if (pct == null) return "normal"
     if (pct >= CONTEXT_CRITICAL_THRESHOLD) return "critical"
     if (pct >= CONTEXT_WARNING_THRESHOLD) return "warning"

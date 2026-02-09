@@ -325,7 +325,9 @@ export function SessionContextTab(props: SessionContextTabProps) {
     return {
       message: last,
       provider,
+      providerLabel: provider?.name ?? last.providerID,
       model,
+      modelLabel: model?.name ?? last.modelID,
       limit,
       input,
       output,

@@ -16,13 +16,15 @@ import { Select } from "@opencode-ai/ui/select"
 import { useCodeComponent } from "@opencode-ai/ui/context/code"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { Mark } from "@opencode-ai/ui/logo"
+import { DiffChanges } from "@opencode-ai/ui/diff-changes"
+import { Icon } from "@opencode-ai/ui/icon"
 
 import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter } from "@thisbeyond/solid-dnd"
 import type { DragEvent } from "@thisbeyond/solid-dnd"
 import { useSync } from "@/context/sync"
 import { useTerminal, type LocalPTY } from "@/context/terminal"
 import { useLayout } from "@/context/layout"
-import { checksum, base64Encode } from "@opencode-ai/util/encode"
+import { checksum, base64Encode, base64Decode } from "@opencode-ai/util/encode"
 import { findLast } from "@opencode-ai/util/array"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useData, DataProvider } from "@opencode-ai/ui/context"
@@ -2005,7 +2007,7 @@ function PageContent() {
                       const p = path()
                       if (!p) return null
                       if (file.ready()) return file.selectedLines(p) ?? null
-                      return handoff.files[p] ?? null
+                      return handoff.session.get(sessionKey())?.files[p] ?? null
                     })
                     const selection = createMemo(() => {
                       const range = selectedLines()

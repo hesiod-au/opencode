@@ -166,7 +166,7 @@ function GroupSection(props: {
           part: {
             ...part,
             excluded: false,
-          },
+          } as any,
         })
         props.onPartUpdated?.()
       }
@@ -222,7 +222,7 @@ function GroupSection(props: {
             part: {
               ...part,
               excluded: false,
-            },
+            } as any,
           })
         }
       }
@@ -388,7 +388,7 @@ export function ContextGroupedView(props: ContextGroupedViewProps) {
           messageId: message.id,
           partId: part.id,
           time: message.time.created,
-          excluded: part.excluded,
+          excluded: (part as any).excluded,
         }
 
         if (part.type === "text") {

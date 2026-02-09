@@ -362,7 +362,7 @@ export function SessionHeader() {
                     placement="bottom"
                   >
                     <Button variant="ghost" class="size-6 p-0" onClick={() => view().reviewPanel.toggle()}>
-                      <Icon name="code-review" size="small" class="icon-base" />
+                      <Icon name="checklist" size="small" class="icon-base" />
                     </Button>
                   </TooltipKeybind>
                 </Show>

@@ -251,8 +251,11 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         },
         // Force refresh messages from server (useful after loading a snapshot)
         async refresh(sessionID: string) {
+          const directory = sdk.directory
+          const client = sdk.client
+          const [, setter] = globalSync.child(directory)
           const limit = meta.limit[sessionID] ?? chunk
-          await loadMessages(sessionID, limit)
+          await loadMessages({ directory, client, setStore: setter, sessionID, limit })
         },
         async diff(sessionID: string) {
           const directory = sdk.directory
