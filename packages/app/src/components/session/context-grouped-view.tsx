@@ -388,7 +388,7 @@ export function ContextGroupedView(props: ContextGroupedViewProps) {
           messageId: message.id,
           partId: part.id,
           time: message.time.created,
-          excluded: (part as any).excluded,
+          excluded: part.excluded,
         }
 
         if (part.type === "text") {

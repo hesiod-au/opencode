@@ -16,7 +16,8 @@ import { type LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { NewSessionItem, SessionItem, SessionSkeleton } from "./sidebar-items"
-import { childMapByParent, sortedRootSessions } from "./helpers"
+import { childMapByParent, sortedRootSessions, sortSessions } from "./helpers"
+import { groupSessionsWithChildren } from "./fork-helpers"
 
 type InlineEditorComponent = (props: {
   id: string
@@ -99,6 +100,9 @@ export const SortableWorkspace = (props: {
   })
   const slug = createMemo(() => base64Encode(props.directory))
   const sessions = createMemo(() => sortedRootSessions(workspaceStore, Date.now()))
+  const grouped = createMemo(() =>
+    groupSessionsWithChildren(sessions(), workspaceStore.session, sortSessions(Date.now())),
+  )
   const children = createMemo(() => childMapByParent(workspaceStore.session))
   const local = createMemo(() => props.directory === props.project.worktree)
   const active = createMemo(() => props.ctx.currentDir() === props.directory)
@@ -300,12 +304,13 @@ export const SortableWorkspace = (props: {
             <Show when={loading()}>
               <SessionSkeleton />
             </Show>
-            <For each={sessions()}>
-              {(session) => (
+            <For each={grouped()}>
+              {(item) => (
                 <SessionItem
-                  session={session}
+                  session={item.session}
                   slug={slug()}
                   mobile={props.mobile}
+                  depth={item.depth}
                   children={children()}
                   sidebarExpanded={props.ctx.sidebarExpanded}
                   sidebarHovering={props.ctx.sidebarHovering}
@@ -353,6 +358,9 @@ export const LocalWorkspace = (props: {
   })
   const slug = createMemo(() => base64Encode(props.project.worktree))
   const sessions = createMemo(() => sortedRootSessions(workspace().store, Date.now()))
+  const grouped = createMemo(() =>
+    groupSessionsWithChildren(sessions(), workspace().store.session, sortSessions(Date.now())),
+  )
   const children = createMemo(() => childMapByParent(workspace().store.session))
   const booted = createMemo((prev) => prev || workspace().store.status === "complete", false)
   const loading = createMemo(() => !booted() && sessions().length === 0)
@@ -371,12 +379,13 @@ export const LocalWorkspace = (props: {
         <Show when={loading()}>
           <SessionSkeleton />
         </Show>
-        <For each={sessions()}>
-          {(session) => (
+        <For each={grouped()}>
+          {(item) => (
             <SessionItem
-              session={session}
+              session={item.session}
               slug={slug()}
               mobile={props.mobile}
+              depth={item.depth}
               children={children()}
               sidebarExpanded={props.ctx.sidebarExpanded}
               sidebarHovering={props.ctx.sidebarHovering}

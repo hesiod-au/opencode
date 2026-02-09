@@ -758,7 +758,7 @@ export function ContextMessageItem(props: ContextMessageItemProps) {
   )
 
   // Helper to check if a part is excluded (either by backend or local UI)
-  const isPartExcluded = (p: Part) => (p as any).excluded || (props.selection?.isForceExcluded?.(p.id) ?? props.selection?.excluded().has(p.id) ?? false)
+  const isPartExcluded = (p: Part) => p.excluded || (props.selection?.isForceExcluded?.(p.id) ?? props.selection?.excluded().has(p.id) ?? false)
 
   // Helper to check if a part is force included
   const isPartForceIncluded = (p: Part) => props.selection?.isForceIncluded?.(p.id) ?? false

@@ -240,6 +240,7 @@ export type SubtaskPart = {
   id: string
   sessionID: string
   messageID: string
+  excluded?: boolean
   type: "subtask"
   prompt: string
   description: string

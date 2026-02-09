@@ -36,15 +36,11 @@ import { SessionContextUsage } from "@/components/session-context-usage"
 import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
-import { createOpencodeClient, type Message, type Part } from "@opencode-ai/sdk/v2/client"
-import { Binary } from "@opencode-ai/util/binary"
-import { showToast } from "@opencode-ai/ui/toast"
-import { base64Encode } from "@opencode-ai/util/encode"
-import { useLoadedSnapshot, useArchive, useCanonicalContextMaybe } from "@/components/session"
 import { createTextFragment, getCursorPosition, setCursorPosition, setRangeEdge } from "./prompt-input/editor-dom"
 import { createPromptAttachments, ACCEPTED_FILE_TYPES } from "./prompt-input/attachments"
 import { navigatePromptHistory, prependHistoryEntry, promptLength } from "./prompt-input/history"
 import { createPromptSubmit } from "./prompt-input/submit"
+import { createForkPromptOverrides } from "./prompt-input/fork-submit"
 import { PromptPopover, type AtOption, type SlashCommand } from "./prompt-input/slash-popover"
 import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
@@ -106,9 +102,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const permission = usePermission()
   const language = useLanguage()
   const platform = usePlatform()
-  const loadedSnapshotCtx = useLoadedSnapshot()
-  const archive = useArchive(sdk.directory)
-  const canonicalContext = useCanonicalContextMaybe()
   let editorRef!: HTMLDivElement
   let fileInputRef!: HTMLInputElement
   let scrollRef!: HTMLDivElement
@@ -781,6 +774,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     readClipboardImage: platform.readClipboardImage,
   })
 
+  const forkOverrides = createForkPromptOverrides(sdk.directory)
+
   const { abort, handleSubmit } = createPromptSubmit({
     info,
     imageAttachments,
@@ -800,6 +795,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     newSessionWorktree: props.newSessionWorktree,
     onNewSessionWorktreeReset: props.onNewSessionWorktreeReset,
     onSubmit: props.onSubmit,
+    getPromptOverrides: forkOverrides,
   })
 
   const handleKeyDown = (event: KeyboardEvent) => {

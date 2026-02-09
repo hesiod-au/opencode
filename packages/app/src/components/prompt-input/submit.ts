@@ -14,6 +14,7 @@ import { useLanguage } from "@/context/language"
 import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import type { FileSelection } from "@/context/file"
+import type { Part } from "@opencode-ai/sdk/v2/client"
 import { setCursorPosition } from "./editor-dom"
 import { buildRequestParts } from "./build-request-parts"
 
@@ -23,6 +24,18 @@ type PendingPrompt = {
 }
 
 const pending = new Map<string, PendingPrompt>()
+
+export type PromptOverrides = {
+  sessionID: string
+  messages: Array<{ info: Message; parts: Part[] }>
+  onSent?: () => void
+}
+
+export type PromptOverridesInput = {
+  session: { id: string }
+  sessionDirectory: string
+  client: ReturnType<typeof createOpencodeClient>
+}
 
 type PromptSubmitInput = {
   info: Accessor<{ id: string } | undefined>
@@ -40,6 +53,9 @@ type PromptSubmitInput = {
   newSessionWorktree?: string
   onNewSessionWorktreeReset?: () => void
   onSubmit?: () => void
+  getPromptOverrides?: (
+    input: PromptOverridesInput,
+  ) => Promise<PromptOverrides | undefined>
 }
 
 type CommentItem = {
@@ -326,9 +342,15 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         messageID,
       })
 
+    const overrides = await input.getPromptOverrides?.({
+      session,
+      sessionDirectory,
+      client,
+    })
+
     removeCommentItems(commentItems)
     clearInput()
-    addOptimisticMessage()
+    if (!overrides) addOptimisticMessage()
 
     const waitForWorktree = async () => {
       const worktree = WorktreeState.get(sessionDirectory)
@@ -386,13 +408,15 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       const ok = await waitForWorktree()
       if (!ok) return
       await client.session.prompt({
-        sessionID: session.id,
+        sessionID: overrides?.sessionID ?? session.id,
         agent,
         model,
         messageID,
         parts: requestParts,
         variant,
+        ...(overrides?.messages ? { messages: overrides.messages } : {}),
       })
+      overrides?.onSent?.()
     }
 
     void send().catch((err) => {
@@ -404,7 +428,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         title: language.t("prompt.toast.promptSendFailed.title"),
         description: errorMessage(err),
       })
-      removeOptimisticMessage()
+      if (!overrides) removeOptimisticMessage()
       restoreCommentItems(commentItems)
       restoreInput()
     })
