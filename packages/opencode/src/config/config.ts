@@ -1224,6 +1224,12 @@ export namespace Config {
             .boolean()
             .optional()
             .describe("Enable TDD mode: write tests after planning, run tests before completing tasks"),
+          enhancedTasks: z
+            .boolean()
+            .optional()
+            .describe(
+              "Enable enhanced planning: best-of-2 with Claude CLI + default model, then synthesis (default: true)",
+            ),
           maxTestRetries: z
             .number()
             .optional()

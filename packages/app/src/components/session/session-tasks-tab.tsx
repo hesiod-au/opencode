@@ -7,6 +7,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 interface TaskModeStatus {
   enabled: boolean
   tddMode: boolean
+  enhancedTasks: boolean
   exists: boolean
   path: string
   folderName: string
@@ -88,6 +89,7 @@ export function SessionTasksTab() {
   const [archiving, setArchiving] = createSignal(false)
   const [creatingPR, setCreatingPR] = createSignal(false)
   const [tddMode, setTddMode] = createSignal(false)
+  const [enhancedTasks, setEnhancedTasks] = createSignal(true)
 
   const fetchStatus = async () => {
     try {
@@ -194,6 +196,14 @@ export function SessionTasksTab() {
     }
   })
 
+  // Sync local enhancedTasks with server status
+  createEffect(() => {
+    const serverEnhancedTasks = status()?.enhancedTasks
+    if (serverEnhancedTasks !== undefined) {
+      setEnhancedTasks(serverEnhancedTasks)
+    }
+  })
+
   // Check if all tasks are completed
   const isAllDone = createMemo(() => {
     const counts = status()?.counts
@@ -211,6 +221,7 @@ export function SessionTasksTab() {
           startOrchestrator: false, // Don't auto-start, will start on first message
           folderName: folder,
           tddMode: tddMode(),
+          enhancedTasks: enhancedTasks(),
         }),
       })
       if (!response.ok) {
@@ -474,6 +485,11 @@ export function SessionTasksTab() {
                   TDD
                 </span>
               </Show>
+              <Show when={status()?.enhancedTasks}>
+                <span class="px-2 py-0.5 rounded-full bg-syntax-info/20 text-syntax-info text-11-medium">
+                  Enhanced
+                </span>
+              </Show>
             </div>
             <button
               class="px-3 py-1 rounded-md bg-surface-base text-text-base hover:bg-surface-raised-base-hover text-12-medium"
@@ -519,6 +535,35 @@ export function SessionTasksTab() {
                 </label>
                 <div class="text-11-regular text-text-weaker text-center">
                   Write tests after planning, run tests before completing tasks
+                </div>
+              </div>
+
+              {/* Enhanced Tasks option - only shown before work starts */}
+              <div class="flex flex-col gap-2 pt-3 border-t border-border-base w-full max-w-xs px-4">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={enhancedTasks()}
+                    onChange={async (e) => {
+                      const newValue = e.currentTarget.checked
+                      setEnhancedTasks(newValue)
+                      // Update config immediately
+                      await fetch(`${sdk.url}/taskmode/enable?directory=${encodeURIComponent(sdk.directory)}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          startOrchestrator: false,
+                          enhancedTasks: newValue,
+                        }),
+                      })
+                      await fetchStatus()
+                    }}
+                    class="w-4 h-4 rounded border-border-base bg-surface-inset focus:ring-2 focus:ring-syntax-info"
+                  />
+                  <span class="text-12-regular text-text-base">Enhanced Tasks</span>
+                </label>
+                <div class="text-11-regular text-text-weaker text-center">
+                  Best-of-2 planning with Claude CLI for higher quality plans
                 </div>
               </div>
             </div>
