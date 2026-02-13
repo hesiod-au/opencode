@@ -93,6 +93,8 @@ export const TaskModeRoutes = lazy(() =>
                     orchestratorRunning: z.boolean(),
                     parentSessionId: z.string().optional(),
                     activeTasks: z.number(),
+                    phase: z.string().optional(),
+                    phaseDetail: z.string().optional(),
                     taskList: TaskList.TaskListFile.optional(),
                     counts: z
                       .object({
@@ -133,6 +135,8 @@ export const TaskModeRoutes = lazy(() =>
           orchestratorRunning: orchestratorStatus.running,
           parentSessionId: orchestratorStatus.parentSessionId,
           activeTasks: orchestratorStatus.activeTasks,
+          phase: orchestratorStatus.phase,
+          phaseDetail: orchestratorStatus.phaseDetail,
           taskList: taskList ?? undefined,
           counts: taskList ? TaskList.getCounts(taskList) : undefined,
         })

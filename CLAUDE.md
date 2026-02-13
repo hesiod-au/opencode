@@ -1,159 +1,129 @@
 # CLAUDE.md
 
-## Project Context
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-- **Project**: OpenCode
-- **Description**: Open source AI coding agent - terminal-first, provider-agnostic
-- **Primary Stack**: TypeScript monorepo (Bun, Turbo), SolidJS frontend
-- **Repo**: https://github.com/anomalyco/opencode
+## Project Overview
 
-### Monorepo Structure
+**OpenCode** is an open-source AI coding agent: terminal-first, provider-agnostic. TypeScript monorepo using Bun + Turbo, with SolidJS for all UI (TUI, web, desktop).
 
-```
-packages/
-├── opencode/     # Main CLI application
-├── console/      # Web console
-├── desktop/      # Desktop app
-├── web/          # Marketing site
-├── sdk/          # JavaScript SDK
-├── plugin/       # Plugin system
-├── ui/           # Shared UI components (SolidJS)
-├── docs/         # Documentation
-└── ...
-```
-
----
-
-## Core Rules
-
-### Code Standards
-
-- **TypeScript**: Strict mode, no `any` types
-- **Formatting**: Prettier (no semicolons, 120 char width)
-- **Package manager**: Bun (`bun install`, `bun run`)
-- **Build**: Turbo (`bun turbo typecheck`)
-- **File length**: Maximum 300 lines (refactor if approaching limit)
-- **Default branch**: `master` (not main)
-
-### Common Commands
+## Commands
 
 ```bash
-bun install                    # Install dependencies
-bun run dev                    # Run dev server (main opencode package)
-bun turbo typecheck            # Typecheck all packages
+bun install                              # Install dependencies
+bun dev                                  # Run CLI/TUI (against packages/opencode dir)
+bun dev <directory>                      # Run TUI against a specific directory
+bun dev .                                # Run TUI in repo root
+bun dev serve                            # Start headless API server (port 4096)
+bun dev serve --port 8080                # Custom port
+bun dev web                              # Start server + web UI
+bun run --cwd packages/app dev           # Web UI only (needs server running)
+bun dev:desktop                          # Native desktop app (requires Tauri/Rust)
+bun typecheck                            # Turbo typecheck across all packages
 ```
 
-### Commit Messages
-
-Short, informative messages. Examples:
-- `Add user authentication endpoint`
-- `Fix pagination off-by-one error`
-- `Refactor order service into separate modules`
-
-### Test-Driven Development (Mandatory)
-
-1. **Tests are contracts** - They define expected behavior
-2. **Write tests FIRST** - Before any implementation
-3. **NEVER modify tests to make them pass** - Fix the implementation instead
-4. **If a test seems wrong** - Stop and ask before changing it
-
----
-
-## Workflow
-
-When given a feature or task:
-
-### 1. Clarify & Spec
-- Ask questions if there's genuine ambiguity
-- Generate a spec document for confirmation
-- Wait for approval before proceeding
-
-### 2. Plan
-- Break the feature into discrete items
-- Create a todo list tracking each item
-
-### 3. Implement (for each item)
-
-```typescript
-function implementItem(item: Item) {
-    writeTests(item)
-    writeImplementation(item)
-
-    while (!testsPass()) {
-        fixImplementation()
-    }
-
-    while (!lintClean()) {
-        fixLintIssues()
-    }
-
-    markComplete(item)
-}
+**Tests** (run from specific packages, NOT from root):
+```bash
+bun test --cwd packages/opencode                         # Core tests
+bun run --cwd packages/app test:unit                      # App unit tests (HappyDOM)
+bun run --cwd packages/app test:e2e                       # App E2E (Playwright)
 ```
 
-### 4. Complete
-- Summarize what was implemented
-- List any follow-up items or known limitations
+**Build**:
+```bash
+./packages/opencode/script/build.ts --single              # Standalone executable
+./script/generate.ts                                       # Regenerate SDK after API changes
+```
 
----
+## Monorepo Structure
 
-## CLI Tools
+| Package | Purpose |
+|---------|---------|
+| `packages/opencode` | Core: CLI, server (Hono), agent logic, tools, providers, sessions |
+| `packages/app` | SolidJS web frontend (Vite, Kobalte, Tailwind) |
+| `packages/desktop` | Tauri native desktop app wrapping the web UI |
+| `packages/ui` | Shared SolidJS component library (used by app + desktop) |
+| `packages/sdk/js` | Published JavaScript SDK for programmatic access |
+| `packages/plugin` | Plugin SDK and tool definitions (@opencode-ai/plugin) |
+| `packages/util` | Shared utilities |
+| `packages/web` | Marketing/docs site (Astro + Starlight) |
+| `packages/enterprise` | Enterprise deployment features |
+| `packages/slack` | Slack bot integration |
 
-Custom CLI tools are available. Use `--help` on the tool and subcommands to discover usage.
+## Core Architecture (`packages/opencode/src/`)
 
-| Tool | Purpose | Discovery |
-|------|---------|-----------|
-| `aws-read` | Read AWS environment/resources | `aws-read --help` |
-| `confluence-cli` | Read from Confluence | `confluence-cli --help` |
-| `ncli` | Read/write Notion | `ncli --help` |
+### Provider System (`provider/`)
+Unified AI provider abstraction using `ai-sdk`. 18+ bundled providers (Anthropic, OpenAI, Google, Azure, Bedrock, Groq, Mistral, etc.). Provider auth via config or environment variables. Custom transforms in `provider/transform.ts`.
 
----
+### Session System (`session/`)
+Sessions are conversation threads with messages. Key files:
+- `session/index.ts` — Core session CRUD and state
+- `session/system.ts` — System prompt building
+- `session/llm.ts` — LLM interaction
+- `session/compaction.ts` — Context window optimization via message compaction
+- `session/prompt/` — Prompt templates as `.txt` files
 
-## Sub-agents
+### Agent System (`agent/`)
+Multiple agents with different permission levels. Defined in `agent/agent.ts` using Zod schemas. Each agent has configurable permissions, model, temperature, topP. Default agents: "build" (full access), "plan" (read-only). Subagent support via "general" agent. Agent-specific prompts in `agent/prompt/`.
 
-Use these agents for isolated task execution:
+### Tool System (`tool/`)
+Built-in tools: bash, edit, read, write, glob, grep, webfetch, websearch, task, skill, multiedit, apply_patch, batch, codesearch, lsp, ls, todo, plan, question. Tool registry in `tool/registry.ts`. Permission checks enforced on execution. Output truncation in `tool/truncation.ts`. Extensible via plugins.
 
-| Agent | When to Use |
-|-------|-------------|
-| `spec-writer` | Generate feature specifications from requirements |
-| `test-writer` | Write tests for a specific feature or function |
-| `implementer` | Write code to make tests pass |
-| `test-runner` | Run tests and fix failures (loop until green) |
-| `precommit-runner` | Run pre-commit and fix issues (loop until clean) |
+### Server (`server/`)
+Hono HTTP server with API routes for sessions, config, providers, files, permissions, MCP, PTY, projects. Event streaming for real-time updates. mDNS discovery for local network.
 
----
+### Other Key Directories
+- `config/` — Multi-source config loading (env, file, workspace `opencode.json`)
+- `permission/` — Glob-based permission rules engine (`permission/next.ts`)
+- `mcp/` — Model Context Protocol server management + OAuth
+- `lsp/` — Language Server Protocol client with built-in servers
+- `storage/` — SQLite-based session persistence
+- `project/` — Workspace management, Git/VCS operations
+- `plugin/` — Plugin loading and management
+- `skill/` — Skill system for domain knowledge
+- `cli/cmd/tui/` — Terminal UI built with SolidJS + [OpenTUI](https://github.com/sst/opentui)
 
-## Skills
+## Web App Architecture (`packages/app/src/`)
 
-Domain knowledge loaded automatically when relevant:
+SolidJS (NOT React) with `@solidjs/router` for routing. Global state via context providers in `src/context/` (Server, Settings, Terminal, Prompt, File, Models, Command, Language, Permission, Layout). Communicates with backend via WebSocket + REST using `@opencode-ai/sdk`. Styled with Tailwind CSS + Kobalte components.
 
-| Skill | Provides |
-|-------|----------|
-| `react-standards` | React/TypeScript/SolidJS conventions |
-| `tdd-policy` | Test-driven development rules and examples |
-| `precommit-setup` | Pre-commit configuration (creates if missing) |
+## Code Standards
 
----
+- **TypeScript strict mode**, no `any` types
+- **Prettier**: no semicolons, 120 char width (config in root `package.json`)
+- **No ESLint** — Prettier only
+- **Bun** for package management and runtime (version 1.3.8)
+- **File length**: max 300 lines, refactor if approaching
+- **Default branch**: `dev`
+- Pre-push hook runs `bun typecheck`
 
-## Asking Questions
+## Style Guide
 
-**Do ask** when:
-- Requirements are ambiguous
-- Multiple valid approaches exist
-- A test seems incorrect
-- Unsure about architectural decisions
+- Keep logic in one function unless reusable/composable
+- Avoid `try`/`catch` — prefer `.catch()`
+- Avoid `else` — use early returns
+- Prefer `const` over `let` — use ternaries
+- Avoid unnecessary destructuring — use dot notation
+- Prefer single-word variable names
+- Use Bun APIs (`Bun.file()`, etc.)
+- Rely on type inference — avoid explicit annotations unless needed for exports
+- Prefer functional array methods (`flatMap`, `filter`, `map`) over `for` loops
+- Drizzle schemas: `snake_case` field names (no string column name args)
+- Inline values used only once — reduce variable count
 
-**Don't ask** when:
-- The path forward is clear
-- It's a minor implementation detail
-- You can make a reasonable assumption and note it
+## Testing
 
----
+- Avoid mocks — test actual implementations
+- Tests are contracts — NEVER modify tests to make them pass
+- Write tests FIRST, then implementation
 
-## Project-Specific Notes
+## PR/Commit Conventions
 
-- Uses **SolidJS** (not React) for UI components - similar API but different reactivity model
-- **Husky** is configured for git hooks
-- SST for infrastructure (`sst.config.ts`)
-- Check `CONTRIBUTING.md` for contribution guidelines
-- Check `STYLE_GUIDE.md` for additional style conventions
+Conventional commits: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`
+Optional scope: `feat(app):`, `fix(desktop):`, `chore(opencode):`
+
+## Key Notes
+
+- After changing API/server code, run `./script/generate.ts` to regenerate SDK
+- To regenerate the JS SDK alone: `./packages/sdk/js/script/build.ts`
+- `bun dev` is the local equivalent of the built `opencode` command
+- Local `main` ref may not exist — use `dev` or `origin/dev` for diffs

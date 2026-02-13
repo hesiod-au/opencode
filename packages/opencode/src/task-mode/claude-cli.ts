@@ -10,10 +10,14 @@ export namespace ClaudeCli {
     return new Promise((resolve, reject) => {
       log.info("invoking claude CLI", { cwd, promptLength: prompt.length })
 
+      const env = { ...process.env }
+      delete env.CLAUDECODE
+      delete env.CLAUDE_CODE_ENTRYPOINT
+
       const child = spawn("claude", ["--print", "--model", "opus", "--permission-mode", "plan", "--no-session-persistence"], {
         cwd,
         stdio: ["pipe", "pipe", "pipe"],
-        env: { ...process.env },
+        env,
       })
 
       let stdout = ""

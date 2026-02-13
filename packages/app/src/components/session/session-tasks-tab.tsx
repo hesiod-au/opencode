@@ -13,6 +13,8 @@ interface TaskModeStatus {
   folderName: string
   orchestratorRunning: boolean
   activeTasks: number
+  phase?: string
+  phaseDetail?: string
   taskList?: {
     title?: string
     description?: string
@@ -470,15 +472,60 @@ export function SessionTasksTab() {
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <h2 class="text-14-medium text-text-strong">Task Mode</h2>
-              <Show when={status()?.orchestratorRunning}>
-                <span class="px-2 py-0.5 rounded-full bg-syntax-success/20 text-syntax-success text-11-medium">
-                  Running
-                </span>
-              </Show>
-              <Show when={!status()?.orchestratorRunning}>
-                <span class="px-2 py-0.5 rounded-full bg-syntax-info/20 text-syntax-info text-11-medium">
-                  Enabled
-                </span>
+              <Show
+                when={status()?.orchestratorRunning}
+                fallback={
+                  <span class="px-2 py-0.5 rounded-full bg-syntax-info/20 text-syntax-info text-11-medium">
+                    Enabled
+                  </span>
+                }
+              >
+                {(() => {
+                  const phase = status()?.phase
+                  switch (phase) {
+                    case "planning":
+                      return (
+                        <span class="px-2 py-0.5 rounded-full bg-syntax-info/20 text-syntax-info text-11-medium flex items-center gap-1">
+                          <Icon name="settings-gear" size="small" class="animate-spin" />
+                          Planning...
+                        </span>
+                      )
+                    case "test-writing":
+                      return (
+                        <span class="px-2 py-0.5 rounded-full bg-syntax-info/20 text-syntax-info text-11-medium flex items-center gap-1">
+                          <Icon name="settings-gear" size="small" class="animate-spin" />
+                          Writing Tests...
+                        </span>
+                      )
+                    case "waiting-confirmation":
+                      return (
+                        <span class="px-2 py-0.5 rounded-full bg-syntax-warning/20 text-syntax-warning text-11-medium">
+                          Awaiting Confirmation
+                        </span>
+                      )
+                    case "e2e-testing":
+                      return (
+                        <span class="px-2 py-0.5 rounded-full bg-syntax-info/20 text-syntax-info text-11-medium flex items-center gap-1">
+                          <Icon name="settings-gear" size="small" class="animate-spin" />
+                          E2E Testing...
+                        </span>
+                      )
+                    case "completing":
+                      return (
+                        <span class="px-2 py-0.5 rounded-full bg-syntax-success/20 text-syntax-success text-11-medium flex items-center gap-1">
+                          <Icon name="settings-gear" size="small" class="animate-spin" />
+                          Completing...
+                        </span>
+                      )
+                    case "executing":
+                    default:
+                      return (
+                        <span class="px-2 py-0.5 rounded-full bg-syntax-success/20 text-syntax-success text-11-medium">
+                          Running{status()?.activeTasks ? ` (${status()!.activeTasks})` : ""}
+                        </span>
+                      )
+                  }
+                })()}
               </Show>
               <Show when={status()?.tddMode}>
                 <span class="px-2 py-0.5 rounded-full bg-syntax-warning/20 text-syntax-warning text-11-medium">
