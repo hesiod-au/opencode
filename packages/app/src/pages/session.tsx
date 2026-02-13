@@ -1024,7 +1024,7 @@ function PageContent() {
   )
 
   const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
-  const reviewTab = createMemo(() => isDesktop() && !layout.fileTree.opened())
+  const reviewTab = createMemo(() => isDesktop() && (!layout.fileTree.opened() || hasReview()))
 
   const showTabs = createMemo(
     () => view().reviewPanel.opened() && (hasReview() || tabs().all().length > 0 || contextOpen() || tasksOpen()),
