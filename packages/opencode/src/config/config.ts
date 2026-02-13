@@ -1234,6 +1234,12 @@ export namespace Config {
             .number()
             .optional()
             .describe("Maximum test/fix iterations before failing a task in TDD mode (default: 10)"),
+          taskPromptGuardrails: z
+            .string()
+            .optional()
+            .describe(
+              "Extra instructions injected into every task and test-fix prompt (e.g., runtime constraints, naming conventions)",
+            ),
         })
         .optional()
         .describe("Task mode configuration for multi-agent orchestration"),

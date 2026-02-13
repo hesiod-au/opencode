@@ -13,6 +13,8 @@ import { Agent } from "../agent/agent"
 import { Instance } from "../project/instance"
 import { Config } from "../config/config"
 import { spawn } from "child_process"
+import path from "path"
+import fs from "fs/promises"
 
 export namespace TaskAgent {
   const log = Log.create({ service: "task-agent" })
@@ -41,6 +43,41 @@ export namespace TaskAgent {
 
   function clearModifiedFiles(taskId: string): void {
     modifiedFilesMap.delete(taskId)
+  }
+
+  async function saveAttemptLog(
+    taskId: string,
+    attempt: number,
+    testOutput: string,
+    modifiedFiles: string[],
+    tasksDir: string,
+  ): Promise<void> {
+    try {
+      const logsDir = path.join(tasksDir, "..", "logs", taskId)
+      await fs.mkdir(logsDir, { recursive: true })
+
+      const timestamp = new Date().toISOString()
+      const content = [
+        `# Attempt ${attempt} — ${timestamp}`,
+        "",
+        "## Modified Files",
+        "",
+        ...modifiedFiles.map((f) => `- ${f}`),
+        "",
+        "## Test Output",
+        "",
+        "```",
+        testOutput,
+        "```",
+        "",
+      ].join("\n")
+
+      const logPath = path.join(logsDir, `attempt-${attempt}.log`)
+      await fs.writeFile(logPath, content, "utf-8")
+      log.info("saved attempt log", { taskId, attempt, logPath })
+    } catch (err) {
+      log.warn("failed to save attempt log", { taskId, attempt, error: err })
+    }
   }
 
   // Compute session stats from message parts
@@ -207,8 +244,9 @@ export namespace TaskAgent {
     taskDescription: string,
     failedTests: string[],
     testOutput: string,
+    guardrails?: string,
   ): string {
-    return `# Test Failures for Task ${taskId}
+    let prompt = `# Test Failures for Task ${taskId}
 
 The following tests are failing and need to be fixed:
 
@@ -234,6 +272,18 @@ Important:
 - Do not over-engineer or add unrelated changes
 - After fixing, the tests should pass
 `
+    if (guardrails) {
+      prompt += `
+---
+
+## Project Guardrails
+
+\`\`\`
+${guardrails}
+\`\`\`
+`
+    }
+    return prompt
   }
 
   export interface TaskAgentOptions {
@@ -312,6 +362,9 @@ Important:
       }
     }
 
+    // Track test attempts across try/catch for task file
+    let totalTestAttempts = 0
+
     // Execute the task with retry on pause
     try {
       const agentToUse = agentName ?? "build"
@@ -323,6 +376,10 @@ Important:
 
       // Use the agent's configured model, or fall back to OpenAI's gpt-5.2-codex
       const model = options.model ?? agent?.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
+
+      // Read config once for guardrails and other settings
+      const config = await Config.get()
+      const guardrails = config.taskMode?.taskPromptGuardrails
 
       let comments: string | undefined
       let retryCount = 0
@@ -336,8 +393,8 @@ Important:
         // Build prompt with task context (include retry info if this is a retry)
         const prompt =
           retryCount === 0
-            ? buildTaskPrompt(taskId, taskTitle, taskDescription)
-            : buildTaskPrompt(taskId, taskTitle, taskDescription) +
+            ? buildTaskPrompt(taskId, taskTitle, taskDescription, guardrails)
+            : buildTaskPrompt(taskId, taskTitle, taskDescription, guardrails) +
               `\n\n---\n\n**Note:** This is retry attempt ${retryCount}. A previous attempt was paused due to a file collision. The blocking file should now be available. Please continue with your task.`
 
         const result = await SessionPrompt.prompt({
@@ -431,14 +488,18 @@ Important:
         const taskListForFramework = await TaskList.read(paths.taskListPath)
         const testFramework = taskListForFramework?.testFramework
 
-        const config = await Config.get()
         const maxTestRetries = config.taskMode?.maxTestRetries ?? 10
+        const tasksDir = path.dirname(taskFilePath)
         let testRetryCount = 0
         let testsPass = false
         let testsCouldNotRun = false
 
         while (!testsPass && !testsCouldNotRun && testRetryCount < maxTestRetries) {
           const testResult = await runTaskTests(taskFileForTests.tests, testFramework)
+
+          // Save per-attempt log
+          const attemptModifiedFiles = Collision.getReservationsForTask(taskId)
+          await saveAttemptLog(taskId, testRetryCount + 1, testResult.output, attemptModifiedFiles, tasksDir)
 
           // If tests couldn't run (e.g., test runner not found), don't fail the task
           if (testResult.couldNotRun) {
@@ -465,7 +526,13 @@ Important:
             if (testRetryCount < maxTestRetries) {
               // Send test failure to agent for fixing
               const fixMessageID = Identifier.ascending("message")
-              const fixPrompt = buildTestFixPrompt(taskId, taskDescription, testResult.failedTests, testResult.output)
+              const fixPrompt = buildTestFixPrompt(
+                taskId,
+                taskDescription,
+                testResult.failedTests,
+                testResult.output,
+                guardrails,
+              )
 
               await SessionPrompt.prompt({
                 messageID: fixMessageID,
@@ -483,11 +550,34 @@ Important:
         }
 
         if (!testsPass && !testsCouldNotRun) {
-          // Tests still failing after max retries
-          throw new Error(
-            `Tests failed after ${maxTestRetries} fix attempts. Failed tests: ${taskFileForTests.tests.join(", ")}`,
+          // Fresh-process verification: one final clean test run before failing
+          log.info("running final fresh-process verification", { taskId })
+          const freshResult = await runTaskTests(taskFileForTests.tests, testFramework)
+          const freshAttemptModifiedFiles = Collision.getReservationsForTask(taskId)
+          await saveAttemptLog(
+            taskId,
+            testRetryCount + 1,
+            `[FRESH VERIFICATION]\n${freshResult.output}`,
+            freshAttemptModifiedFiles,
+            tasksDir,
           )
+
+          if (freshResult.success) {
+            testsPass = true
+            testRetryCount++ // count the fresh run
+            log.info("tests passed on final fresh verification", { taskId })
+            comments =
+              (comments ? comments + "\n\n" : "") + "Tests passed on final fresh verification (after retry exhaustion)."
+          } else {
+            // Tests truly failed — include fresh output in error
+            throw new Error(
+              `Tests failed after ${maxTestRetries} fix attempts (+ fresh verification). Failed tests: ${taskFileForTests.tests.join(", ")}\n\nFresh verification output:\n${freshResult.output.slice(0, 3000)}`,
+            )
+          }
         }
+
+        // Store final attempt count for the task file
+        totalTestAttempts = testRetryCount
       }
 
       // Mark task as done
@@ -505,6 +595,7 @@ Important:
           status: "done",
           completedAt: new Date().toISOString(),
           comments,
+          ...(totalTestAttempts > 0 ? { attemptCount: totalTestAttempts } : {}),
         })
       }
 
@@ -554,6 +645,7 @@ Important:
           ...taskFile,
           status: "error",
           comments: `Error: ${err.message || err}`,
+          ...(totalTestAttempts > 0 ? { attemptCount: totalTestAttempts } : {}),
         }).catch(() => {})
       }
 
@@ -626,8 +718,8 @@ Important:
     log.info("task paused", { taskId, reason, collidingTaskId, collidingFile })
   }
 
-  function buildTaskPrompt(taskId: string, title: string, description: string): string {
-    return `# Task ${taskId}: ${title}
+  function buildTaskPrompt(taskId: string, title: string, description: string, guardrails?: string): string {
+    let prompt = `# Task ${taskId}: ${title}
 
 ${description}
 
@@ -643,5 +735,17 @@ Important:
 - If you encounter a blocking issue that truly cannot be resolved, report it in your summary
 - Do NOT ask the user for clarification - figure it out yourself or make a reasonable assumption
 `
+    if (guardrails) {
+      prompt += `
+---
+
+## Project Guardrails
+
+\`\`\`
+${guardrails}
+\`\`\`
+`
+    }
+    return prompt
   }
 }

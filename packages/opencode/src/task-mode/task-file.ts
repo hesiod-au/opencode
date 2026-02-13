@@ -18,6 +18,7 @@ export namespace TaskFile {
     sessionId: z.string().optional(),
     startedAt: z.string().optional(),
     completedAt: z.string().optional(),
+    attemptCount: z.number().optional(),
   })
   export type TaskFileData = z.infer<typeof TaskFileData>
 
@@ -87,6 +88,9 @@ export namespace TaskFile {
             case "completedAt":
               result.completedAt = value
               break
+            case "attemptCount":
+              result.attemptCount = parseInt(value, 10) || undefined
+              break
           }
         }
         continue
@@ -155,6 +159,9 @@ export namespace TaskFile {
     }
     if (data.completedAt) {
       lines.push(`completedAt: ${data.completedAt}`)
+    }
+    if (data.attemptCount !== undefined) {
+      lines.push(`attemptCount: ${data.attemptCount}`)
     }
     lines.push("---")
     lines.push("")
