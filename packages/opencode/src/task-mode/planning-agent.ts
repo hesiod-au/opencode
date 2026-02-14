@@ -76,12 +76,11 @@ export namespace PlanningAgent {
   }
 
   async function resolveSession(parentSessionId?: string): Promise<string> {
-    if (parentSessionId) {
-      log.info("planning agent will run in parent session", { sessionId: parentSessionId })
-      return parentSessionId
-    }
-    const session = await Session.create({ title: "Task Planning Session" })
-    log.info("planning agent created new session", { sessionId: session.id })
+    const session = await Session.create({
+      parentID: parentSessionId,
+      title: "Task Planning Session",
+    })
+    log.info("planning agent created session", { sessionId: session.id, parentId: parentSessionId })
     return session.id
   }
 
@@ -161,8 +160,8 @@ export namespace PlanningAgent {
     Bus.publish(TaskModeEvent.PlanningStarted, { sessionId })
 
     try {
-      const agent = await Agent.get("plan")
-      if (!agent) throw new Error("Plan agent not found")
+      const agent = await Agent.get("build")
+      if (!agent) throw new Error("Build agent not found")
 
       const conversationContext = await fetchConversationContext(parentSessionId)
       const messageID = Identifier.ascending("message")
@@ -198,8 +197,8 @@ export namespace PlanningAgent {
     Bus.publish(TaskModeEvent.PlanningStarted, { sessionId })
 
     try {
-      const agent = await Agent.get("plan")
-      if (!agent) throw new Error("Plan agent not found")
+      const agent = await Agent.get("build")
+      if (!agent) throw new Error("Build agent not found")
 
       const conversationContext = await fetchConversationContext(parentSessionId)
       const planOnlyPrompt = PlanningPrompts.buildPlanOnlyPrompt(context, conversationContext, userPrompt)
