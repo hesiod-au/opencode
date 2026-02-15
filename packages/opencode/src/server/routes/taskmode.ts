@@ -591,6 +591,7 @@ export const TaskModeRoutes = lazy(() =>
         z.object({
           status: TaskList.TaskStatus.optional(),
           assignee: z.string().optional(),
+          title: z.string().optional(),
         }),
       ),
       async (c) => {

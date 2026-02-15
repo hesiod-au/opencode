@@ -129,9 +129,6 @@ export namespace TaskAgent {
       return { success: true, output: "No tests to run", failedTests: [] }
     }
 
-    // Build test pattern from test names
-    const testPattern = tests.join("|")
-
     let command: string[]
 
     // Use test framework info if available (from test-writer agent)
@@ -140,20 +137,21 @@ export namespace TaskAgent {
       command = [...baseCommand]
 
       // Add test name filter based on framework
+      // pytest -k uses "or" keyword, not "|" which causes "Wrong expression passed to '-k'"
       const framework = testFramework.framework.toLowerCase()
       if (framework.includes("pytest")) {
-        command.push("-k", testPattern)
+        command.push("-k", tests.join(" or "))
       } else if (framework.includes("bun")) {
-        command.push("--test-name-pattern", testPattern)
+        command.push("--test-name-pattern", tests.join("|"))
       } else if (framework.includes("vitest")) {
-        command.push("-t", testPattern)
+        command.push("-t", tests.join("|"))
       } else if (framework.includes("jest")) {
-        command.push("-t", testPattern)
+        command.push("-t", tests.join("|"))
       } else if (framework.includes("go") || framework === "testing") {
-        command.push("-run", testPattern)
+        command.push("-run", tests.join("|"))
       } else {
         // For unknown frameworks, try to append the test pattern
-        command.push(testPattern)
+        command.push(tests.join("|"))
       }
 
       log.info("using test framework from task list", { testFramework, command })
@@ -165,11 +163,11 @@ export namespace TaskAgent {
       const hasPyprojectToml = await Bun.file(`${Instance.directory}/pyproject.toml`).exists().catch(() => false)
 
       if (hasPytest || hasPyprojectToml) {
-        // Python project - use pytest
-        command = ["pytest", "-v", "-k", testPattern]
+        // Python project - use pytest (-k uses "or" keyword, not "|")
+        command = ["pytest", "-v", "-k", tests.join(" or ")]
       } else if (hasBunLock || hasPackageJson) {
         // JavaScript/TypeScript project - use bun test
-        command = ["bun", "test", "--test-name-pattern", testPattern]
+        command = ["bun", "test", "--test-name-pattern", tests.join("|")]
       } else {
         // Cannot determine test runner
         log.warn("could not determine test runner", { tests })

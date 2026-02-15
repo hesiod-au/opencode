@@ -361,9 +361,10 @@ ${Array.from(stats.modifiedFiles).map(f => `- \`${f}\``).join("\n") || "No files
       command = [...baseCommand]
 
       // Add test name filter based on framework
+      // pytest -k uses "or" keyword, not "|" which causes "Wrong expression passed to '-k'"
       const framework = testFramework.framework.toLowerCase()
       if (framework.includes("pytest")) {
-        command.push("-k", e2eTestName)
+        command.push("-k", e2eTestName.replaceAll("|", " or "))
       } else if (framework.includes("bun")) {
         command.push("--test-name-pattern", e2eTestName)
       } else if (framework.includes("vitest")) {
@@ -387,7 +388,8 @@ ${Array.from(stats.modifiedFiles).map(f => `- \`${f}\``).join("\n") || "No files
       const hasGoMod = await Bun.file(`${Instance.directory}/go.mod`).exists().catch(() => false)
 
       if (hasPytest || hasPyprojectToml) {
-        command = ["pytest", "-v", "-k", e2eTestName]
+        // pytest -k uses "or" keyword, not "|"
+        command = ["pytest", "-v", "-k", e2eTestName.replaceAll("|", " or ")]
       } else if (hasGoMod) {
         command = ["go", "test", "-v", "-run", e2eTestName, "./..."]
       } else if (hasBunLock) {
@@ -807,6 +809,24 @@ The E2E test validates that all components work together correctly. Focus on int
         await logAction(
           `**Retrying ${erroredTaskIds.length} failed task(s):** ${erroredTaskIds.join(", ")}\n\n` +
             `User message received, resetting errored tasks for another attempt.`,
+        )
+      }
+    }
+
+    // If user sent a message, check for tasks that were manually reset to "todo" via the UI
+    // but are still in launchedTaskIds — clear them so orchestrator will re-run them
+    if (taskList && options?.userPrompt && state) {
+      const manuallyResetIds = taskList.tasks
+        .filter((t) => t.status === "todo" && state!.launchedTaskIds.has(t.id))
+        .map((t) => t.id)
+      if (manuallyResetIds.length > 0) {
+        log.info("found manually-reset tasks, clearing from launchedTaskIds for re-execution", { manuallyResetIds })
+        for (const taskId of manuallyResetIds) {
+          state!.launchedTaskIds.delete(taskId)
+        }
+        await logAction(
+          `**Re-queuing ${manuallyResetIds.length} manually-reset task(s):** ${manuallyResetIds.join(", ")}\n\n` +
+            `Tasks were reset to "todo" via the UI, will be re-executed.`,
         )
       }
     }

@@ -92,6 +92,8 @@ export function SessionTasksTab() {
   const [creatingPR, setCreatingPR] = createSignal(false)
   const [tddMode, setTddMode] = createSignal(false)
   const [enhancedTasks, setEnhancedTasks] = createSignal(true)
+  const [editingTaskId, setEditingTaskId] = createSignal<string | null>(null)
+  const [editingTitle, setEditingTitle] = createSignal("")
 
   const fetchStatus = async () => {
     try {
@@ -320,6 +322,40 @@ export function SessionTasksTab() {
       setCreatingPR(false)
     }
   }
+
+  const updateTask = async (taskId: string, updates: { title?: string; status?: string }) => {
+    try {
+      const response = await fetch(`${sdk.url}/taskmode/task/${taskId}?directory=${encodeURIComponent(sdk.directory)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      })
+      if (!response.ok) throw new Error("Failed to update task")
+      await fetchStatus()
+      await fetchTaskDetails()
+    } catch (err: any) {
+      showToast({ title: "Failed to update task", description: err.message, variant: "error" })
+    }
+  }
+
+  const startEditingTitle = (taskId: string, currentTitle: string) => {
+    setEditingTaskId(taskId)
+    setEditingTitle(currentTitle)
+  }
+
+  const saveTitle = async (taskId: string) => {
+    const newTitle = editingTitle().trim()
+    setEditingTaskId(null)
+    if (!newTitle) return
+    await updateTask(taskId, { title: newTitle })
+  }
+
+  const cancelEditing = () => {
+    setEditingTaskId(null)
+    setEditingTitle("")
+  }
+
+  const canEdit = () => !status()?.orchestratorRunning
 
   const formatDuration = (ms?: number) => {
     if (!ms) return "N/A"
@@ -676,7 +712,34 @@ export function SessionTasksTab() {
                             class={`text-text-weak transition-transform ${isExpanded() ? "rotate-90" : ""}`}
                           />
                           <span class="font-mono text-text-strong text-12-medium w-10">{task.id}</span>
-                          <span class="flex-1 text-text-base text-12-regular truncate">{task.title}</span>
+                          <Show
+                            when={canEdit() && editingTaskId() === task.id}
+                            fallback={
+                              <span
+                                class={`flex-1 text-text-base text-12-regular truncate ${canEdit() ? "cursor-text hover:text-text-strong" : ""}`}
+                                onClick={(e) => {
+                                  if (!canEdit()) return
+                                  e.stopPropagation()
+                                  startEditingTitle(task.id, task.title)
+                                }}
+                              >
+                                {task.title}
+                              </span>
+                            }
+                          >
+                            <input
+                              class="flex-1 text-text-base text-12-regular bg-surface-inset border border-border-strong rounded px-1 py-0.5 focus:outline-none"
+                              value={editingTitle()}
+                              onInput={(e) => setEditingTitle(e.currentTarget.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveTitle(task.id)
+                                if (e.key === "Escape") cancelEditing()
+                              }}
+                              onBlur={() => saveTitle(task.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              ref={(el) => setTimeout(() => el.focus(), 0)}
+                            />
+                          </Show>
                           <div class="flex items-center gap-1.5">
                             {statusIcon(task.status)}
                             <span class="text-text-weak text-11-regular">{task.status}</span>
@@ -749,6 +812,26 @@ export function SessionTasksTab() {
                                     <div class="text-12-regular text-text-base whitespace-pre-wrap bg-surface-base p-2 rounded border border-border-base">
                                       {details()?.comments}
                                     </div>
+                                  </div>
+                                </Show>
+
+                                {/* Status reset buttons (only when orchestrator is stopped) */}
+                                <Show when={canEdit() && (task.status === "error" || task.status === "done")}>
+                                  <div class="flex items-center gap-2 pt-2 border-t border-border-base">
+                                    <button
+                                      class="px-3 py-1 rounded-md bg-surface-base text-text-base hover:bg-surface-raised-base-hover text-11-medium border border-border-base"
+                                      onClick={() => updateTask(task.id, { status: "todo" })}
+                                    >
+                                      Reset to Todo
+                                    </button>
+                                    <Show when={task.status === "error"}>
+                                      <button
+                                        class="px-3 py-1 rounded-md bg-syntax-success/10 text-syntax-success hover:bg-syntax-success/20 text-11-medium border border-syntax-success/30"
+                                        onClick={() => updateTask(task.id, { status: "done" })}
+                                      >
+                                        Mark Done
+                                      </button>
+                                    </Show>
                                   </div>
                                 </Show>
                               </div>
