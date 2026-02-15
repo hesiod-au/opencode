@@ -64,6 +64,7 @@ Now, analyze the project and create the task breakdown based on what the user ha
     context?: string,
     conversationContext?: string,
     userPrompt?: string,
+    taskCount?: number,
   ): string {
     const userRequestSection = userPrompt
       ? `## User Request
@@ -81,9 +82,13 @@ ${conversationContext}
 `
       : ""
 
+    const countWarning = taskCount
+      ? `You MUST write descriptions for ALL ${taskCount} tasks below. Do not stop early.\n\n`
+      : ""
+
     return `You are a task description writer. You have been given a finalized task plan. Your job is to write comprehensive, self-contained descriptions for each task.
 
-${userRequestSection}${conversationSection}${context ? `## Additional Context\n${context}\n\n` : ""}## Finalized Plan
+${countWarning}${userRequestSection}${conversationSection}${context ? `## Additional Context\n${context}\n\n` : ""}## Finalized Plan
 
 ${planTable}
 
@@ -109,7 +114,36 @@ The agent working on this task will NOT have access to the original user convers
 
 And so on for each task...
 
-Now write the detailed descriptions for each task.
+Now write the detailed descriptions for each task. Do not stop until every task has a description.
+`
+  }
+
+  export function buildContinuationPrompt(
+    planTable: string,
+    completedTaskIds: string[],
+    missingTaskIds: string[],
+  ): string {
+    return `You stopped before completing all task descriptions. Write the remaining ones now.
+
+## Plan Reference
+
+${planTable}
+
+## Already Completed
+
+The following tasks already have descriptions: ${completedTaskIds.join(", ")}
+
+## Missing Descriptions
+
+You MUST write descriptions for these tasks: ${missingTaskIds.join(", ")}
+
+Use the same format as before:
+
+## Task NNN: Task title
+
+(comprehensive, self-contained description)
+
+Write descriptions for ALL ${missingTaskIds.length} missing tasks now. Do not stop until every one is covered.
 `
   }
 

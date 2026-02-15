@@ -106,6 +106,20 @@ export namespace PlanningAgent {
       .join("\n\n")
   }
 
+  function analyzeDescriptionCoverage(
+    tasks: TaskList.TaskEntry[],
+    descriptions: Map<string, string>,
+  ): { total: number; withDescriptions: number; missingIds: string[] } {
+    const missingIds: string[] = []
+    for (const task of tasks) {
+      const desc = descriptions.get(task.id)
+      if (!desc || desc.trim().length === 0 || desc.trim() === task.title.trim()) {
+        missingIds.push(task.id)
+      }
+    }
+    return { total: tasks.length, withDescriptions: tasks.length - missingIds.length, missingIds }
+  }
+
   async function finalizePlan(
     plan: TaskList.TaskListFile,
     paths: TaskList.Paths,
@@ -277,10 +291,55 @@ export namespace PlanningAgent {
       const planTableOnly = parsePlanFromResponse(finalPlanText)
       if (planTableOnly.tasks.length === 0) throw new Error("Enhanced planning did not generate any tasks")
 
-      // Phase 2: Write detailed task descriptions from the finalized plan
+      // Write task list and task files immediately so the orchestrator can proceed
+      const result = await finalizePlan(planTableOnly, paths, sessionId, parentSessionId)
+
+      // Phase 2: Best-effort description enrichment (files already exist)
+      enrichTaskDescriptions({
+        plan: planTableOnly,
+        paths,
+        sessionId,
+        parentSessionId,
+        finalPlanText,
+        context,
+        conversationContext,
+        userPrompt,
+        agent,
+        model,
+      })
+
+      return result
+    } catch (err: any) {
+      log.error("enhanced planning failed", { error: err })
+      await logToParent(parentSessionId, `**Planning failed:** ${err.message || String(err)}`)
+      return { success: false, sessionId, taskCount: 0, error: err.message || String(err) }
+    }
+  }
+
+  async function enrichTaskDescriptions(opts: {
+    plan: TaskList.TaskListFile
+    paths: TaskList.Paths
+    sessionId: string
+    parentSessionId?: string
+    finalPlanText: string
+    context?: string
+    conversationContext?: string
+    userPrompt?: string
+    agent: { name: string }
+    model: { providerID: string; modelID: string }
+  }): Promise<void> {
+    const { plan, paths, sessionId, parentSessionId, finalPlanText, context, conversationContext, userPrompt, agent, model } = opts
+
+    try {
       await logToParent(parentSessionId, "**Enhanced planning:** writing detailed task descriptions...")
 
-      const taskWritingPrompt = PlanningPrompts.buildTaskWritingPrompt(finalPlanText, context, conversationContext, userPrompt)
+      const taskWritingPrompt = PlanningPrompts.buildTaskWritingPrompt(
+        finalPlanText,
+        context,
+        conversationContext,
+        userPrompt,
+        plan.tasks.length,
+      )
       const taskWriteMessageID = Identifier.ascending("message")
       const taskWriteResult = await SessionPrompt.prompt({
         messageID: taskWriteMessageID,
@@ -292,21 +351,76 @@ export namespace PlanningAgent {
       })
 
       const taskDescriptionsText = extractResponseText(taskWriteResult)
-
-      // Merge descriptions into the plan
       const taskDescriptions = parseTaskDescriptions(taskDescriptionsText)
-      for (const task of planTableOnly.tasks) {
+
+      // Retry loop for incomplete descriptions
+      let coverage = analyzeDescriptionCoverage(plan.tasks, taskDescriptions)
+      const maxRetries = 2
+      for (let attempt = 0; attempt < maxRetries && coverage.missingIds.length > 0; attempt++) {
+        const completedIds = plan.tasks.map((t) => t.id).filter((id) => !coverage.missingIds.includes(id))
+        log.warn("description coverage incomplete, retrying", {
+          attempt: attempt + 1,
+          missing: coverage.missingIds,
+          total: coverage.total,
+        })
+        await logToParent(
+          parentSessionId,
+          `**Enhanced planning:** ${coverage.missingIds.length} of ${coverage.total} tasks missing descriptions, retrying (attempt ${attempt + 1}/${maxRetries})...`,
+        )
+
+        const continuationPrompt = PlanningPrompts.buildContinuationPrompt(
+          finalPlanText,
+          completedIds,
+          coverage.missingIds,
+        )
+        const retryMessageID = Identifier.ascending("message")
+        const retryResult = await SessionPrompt.prompt({
+          messageID: retryMessageID,
+          sessionID: sessionId,
+          model: { modelID: model.modelID, providerID: model.providerID },
+          agent: agent.name,
+          variant: "max",
+          parts: [{ type: "text", text: continuationPrompt }],
+        })
+
+        const retryText = extractResponseText(retryResult)
+        const retryDescriptions = parseTaskDescriptions(retryText)
+        for (const [id, desc] of retryDescriptions) {
+          taskDescriptions.set(id, desc)
+        }
+        coverage = analyzeDescriptionCoverage(plan.tasks, taskDescriptions)
+      }
+
+      if (coverage.missingIds.length > 0) {
+        log.warn("descriptions still incomplete after retries", { missing: coverage.missingIds })
+        await logToParent(
+          parentSessionId,
+          `**Warning:** ${coverage.missingIds.length} task(s) still missing descriptions after retries: ${coverage.missingIds.join(", ")}`,
+        )
+      }
+
+      // Update task files that got descriptions
+      let updated = 0
+      for (const task of plan.tasks) {
         const desc = taskDescriptions.get(task.id)
-        if (desc) {
-          ;(task as any)._description = desc
+        if (desc && desc.trim() !== task.title.trim()) {
+          const filePath = TaskFile.getFilePath(paths.tasksDir, task.id)
+          const existing = await TaskFile.read(filePath)
+          if (existing) {
+            existing.description = desc
+            await TaskFile.write(filePath, existing)
+            updated++
+          }
         }
       }
 
-      return finalizePlan(planTableOnly, paths, sessionId, parentSessionId)
+      if (updated > 0) {
+        log.info("enriched task descriptions", { updated, total: plan.tasks.length })
+        await logToParent(parentSessionId, `**Enhanced planning:** enriched ${updated} of ${plan.tasks.length} task descriptions`)
+      }
     } catch (err: any) {
-      log.error("enhanced planning failed", { error: err })
-      await logToParent(parentSessionId, `**Planning failed:** ${err.message || String(err)}`)
-      return { success: false, sessionId, taskCount: 0, error: err.message || String(err) }
+      log.error("description enrichment failed", { error: err })
+      await logToParent(parentSessionId, `**Warning:** task description enrichment failed: ${err.message || String(err)}`)
     }
   }
 
