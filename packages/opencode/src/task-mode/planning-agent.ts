@@ -80,6 +80,15 @@ export namespace PlanningAgent {
       parentID: parentSessionId,
       title: "Task Planning Session",
     })
+    // Auto-allow all permissions to prevent blocking on "ask" prompts
+    // in the child session where no user is watching.
+    // Deny question tool since no user is available to answer.
+    await Session.update(session.id, (draft) => {
+      draft.permission = [
+        { permission: "question", action: "deny", pattern: "*" },
+        { permission: "*", action: "allow", pattern: "*" },
+      ]
+    })
     log.info("planning agent created session", { sessionId: session.id, parentId: parentSessionId })
     return session.id
   }
@@ -234,7 +243,15 @@ export namespace PlanningAgent {
           })
           return extractResponseText(result)
         })(),
-        ClaudeCli.invokeClaude(planOnlyPrompt, Instance.directory),
+        ClaudeCli.invokeClaude(planOnlyPrompt, Instance.directory, {
+          onProgress: (info) => {
+            logToParent(
+              parentSessionId,
+              `**Claude CLI:** ${info.totalChars} chars generated (${Math.round(info.elapsedMs / 1000)}s)...`,
+            )
+          },
+          progressIntervalMs: 15_000,
+        }),
       ])
 
       const defaultPlan = defaultResult.status === "fulfilled" ? defaultResult.value : null
