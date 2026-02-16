@@ -7,11 +7,14 @@ import { showToast } from "@opencode-ai/ui/toast"
 interface TaskModeStatus {
   enabled: boolean
   tddMode: boolean
+  enhancedTasks: boolean
   exists: boolean
   path: string
   folderName: string
   orchestratorRunning: boolean
   activeTasks: number
+  phase?: string
+  phaseDetail?: string
   taskList?: {
     title?: string
     description?: string
@@ -88,6 +91,9 @@ export function SessionTasksTab() {
   const [archiving, setArchiving] = createSignal(false)
   const [creatingPR, setCreatingPR] = createSignal(false)
   const [tddMode, setTddMode] = createSignal(false)
+  const [enhancedTasks, setEnhancedTasks] = createSignal(true)
+  const [editingTaskId, setEditingTaskId] = createSignal<string | null>(null)
+  const [editingTitle, setEditingTitle] = createSignal("")
 
   const fetchStatus = async () => {
     try {
@@ -194,6 +200,14 @@ export function SessionTasksTab() {
     }
   })
 
+  // Sync local enhancedTasks with server status
+  createEffect(() => {
+    const serverEnhancedTasks = status()?.enhancedTasks
+    if (serverEnhancedTasks !== undefined) {
+      setEnhancedTasks(serverEnhancedTasks)
+    }
+  })
+
   // Check if all tasks are completed
   const isAllDone = createMemo(() => {
     const counts = status()?.counts
@@ -211,6 +225,7 @@ export function SessionTasksTab() {
           startOrchestrator: false, // Don't auto-start, will start on first message
           folderName: folder,
           tddMode: tddMode(),
+          enhancedTasks: enhancedTasks(),
         }),
       })
       if (!response.ok) {
@@ -307,6 +322,40 @@ export function SessionTasksTab() {
       setCreatingPR(false)
     }
   }
+
+  const updateTask = async (taskId: string, updates: { title?: string; status?: string }) => {
+    try {
+      const response = await fetch(`${sdk.url}/taskmode/task/${taskId}?directory=${encodeURIComponent(sdk.directory)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      })
+      if (!response.ok) throw new Error("Failed to update task")
+      await fetchStatus()
+      await fetchTaskDetails()
+    } catch (err: any) {
+      showToast({ title: "Failed to update task", description: err.message, variant: "error" })
+    }
+  }
+
+  const startEditingTitle = (taskId: string, currentTitle: string) => {
+    setEditingTaskId(taskId)
+    setEditingTitle(currentTitle)
+  }
+
+  const saveTitle = async (taskId: string) => {
+    const newTitle = editingTitle().trim()
+    setEditingTaskId(null)
+    if (!newTitle) return
+    await updateTask(taskId, { title: newTitle })
+  }
+
+  const cancelEditing = () => {
+    setEditingTaskId(null)
+    setEditingTitle("")
+  }
+
+  const canEdit = () => !status()?.orchestratorRunning
 
   const formatDuration = (ms?: number) => {
     if (!ms) return "N/A"
@@ -459,19 +508,69 @@ export function SessionTasksTab() {
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <h2 class="text-14-medium text-text-strong">Task Mode</h2>
-              <Show when={status()?.orchestratorRunning}>
-                <span class="px-2 py-0.5 rounded-full bg-syntax-success/20 text-syntax-success text-11-medium">
-                  Running
-                </span>
-              </Show>
-              <Show when={!status()?.orchestratorRunning}>
-                <span class="px-2 py-0.5 rounded-full bg-syntax-info/20 text-syntax-info text-11-medium">
-                  Enabled
-                </span>
+              <Show
+                when={status()?.orchestratorRunning}
+                fallback={
+                  <span class="px-2 py-0.5 rounded-full bg-syntax-info/20 text-syntax-info text-11-medium">
+                    Enabled
+                  </span>
+                }
+              >
+                {(() => {
+                  const phase = status()?.phase
+                  switch (phase) {
+                    case "planning":
+                      return (
+                        <span class="px-2 py-0.5 rounded-full bg-syntax-info/20 text-syntax-info text-11-medium flex items-center gap-1">
+                          <Icon name="settings-gear" size="small" class="animate-spin" />
+                          Planning...
+                        </span>
+                      )
+                    case "test-writing":
+                      return (
+                        <span class="px-2 py-0.5 rounded-full bg-syntax-info/20 text-syntax-info text-11-medium flex items-center gap-1">
+                          <Icon name="settings-gear" size="small" class="animate-spin" />
+                          Writing Tests...
+                        </span>
+                      )
+                    case "waiting-confirmation":
+                      return (
+                        <span class="px-2 py-0.5 rounded-full bg-syntax-warning/20 text-syntax-warning text-11-medium">
+                          Awaiting Confirmation
+                        </span>
+                      )
+                    case "e2e-testing":
+                      return (
+                        <span class="px-2 py-0.5 rounded-full bg-syntax-info/20 text-syntax-info text-11-medium flex items-center gap-1">
+                          <Icon name="settings-gear" size="small" class="animate-spin" />
+                          E2E Testing...
+                        </span>
+                      )
+                    case "completing":
+                      return (
+                        <span class="px-2 py-0.5 rounded-full bg-syntax-success/20 text-syntax-success text-11-medium flex items-center gap-1">
+                          <Icon name="settings-gear" size="small" class="animate-spin" />
+                          Completing...
+                        </span>
+                      )
+                    case "executing":
+                    default:
+                      return (
+                        <span class="px-2 py-0.5 rounded-full bg-syntax-success/20 text-syntax-success text-11-medium">
+                          Running{status()?.activeTasks ? ` (${status()!.activeTasks})` : ""}
+                        </span>
+                      )
+                  }
+                })()}
               </Show>
               <Show when={status()?.tddMode}>
                 <span class="px-2 py-0.5 rounded-full bg-syntax-warning/20 text-syntax-warning text-11-medium">
                   TDD
+                </span>
+              </Show>
+              <Show when={status()?.enhancedTasks}>
+                <span class="px-2 py-0.5 rounded-full bg-syntax-info/20 text-syntax-info text-11-medium">
+                  Enhanced
                 </span>
               </Show>
             </div>
@@ -519,6 +618,35 @@ export function SessionTasksTab() {
                 </label>
                 <div class="text-11-regular text-text-weaker text-center">
                   Write tests after planning, run tests before completing tasks
+                </div>
+              </div>
+
+              {/* Enhanced Tasks option - only shown before work starts */}
+              <div class="flex flex-col gap-2 pt-3 border-t border-border-base w-full max-w-xs px-4">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={enhancedTasks()}
+                    onChange={async (e) => {
+                      const newValue = e.currentTarget.checked
+                      setEnhancedTasks(newValue)
+                      // Update config immediately
+                      await fetch(`${sdk.url}/taskmode/enable?directory=${encodeURIComponent(sdk.directory)}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          startOrchestrator: false,
+                          enhancedTasks: newValue,
+                        }),
+                      })
+                      await fetchStatus()
+                    }}
+                    class="w-4 h-4 rounded border-border-base bg-surface-inset focus:ring-2 focus:ring-syntax-info"
+                  />
+                  <span class="text-12-regular text-text-base">Enhanced Tasks</span>
+                </label>
+                <div class="text-11-regular text-text-weaker text-center">
+                  Best-of-2 planning with Claude CLI for higher quality plans
                 </div>
               </div>
             </div>
@@ -584,7 +712,34 @@ export function SessionTasksTab() {
                             class={`text-text-weak transition-transform ${isExpanded() ? "rotate-90" : ""}`}
                           />
                           <span class="font-mono text-text-strong text-12-medium w-10">{task.id}</span>
-                          <span class="flex-1 text-text-base text-12-regular truncate">{task.title}</span>
+                          <Show
+                            when={canEdit() && editingTaskId() === task.id}
+                            fallback={
+                              <span
+                                class={`flex-1 text-text-base text-12-regular truncate ${canEdit() ? "cursor-text hover:text-text-strong" : ""}`}
+                                onClick={(e) => {
+                                  if (!canEdit()) return
+                                  e.stopPropagation()
+                                  startEditingTitle(task.id, task.title)
+                                }}
+                              >
+                                {task.title}
+                              </span>
+                            }
+                          >
+                            <input
+                              class="flex-1 text-text-base text-12-regular bg-surface-inset border border-border-strong rounded px-1 py-0.5 focus:outline-none"
+                              value={editingTitle()}
+                              onInput={(e) => setEditingTitle(e.currentTarget.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveTitle(task.id)
+                                if (e.key === "Escape") cancelEditing()
+                              }}
+                              onBlur={() => saveTitle(task.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              ref={(el) => setTimeout(() => el.focus(), 0)}
+                            />
+                          </Show>
                           <div class="flex items-center gap-1.5">
                             {statusIcon(task.status)}
                             <span class="text-text-weak text-11-regular">{task.status}</span>
@@ -657,6 +812,26 @@ export function SessionTasksTab() {
                                     <div class="text-12-regular text-text-base whitespace-pre-wrap bg-surface-base p-2 rounded border border-border-base">
                                       {details()?.comments}
                                     </div>
+                                  </div>
+                                </Show>
+
+                                {/* Status reset buttons (only when orchestrator is stopped) */}
+                                <Show when={canEdit() && (task.status === "error" || task.status === "done")}>
+                                  <div class="flex items-center gap-2 pt-2 border-t border-border-base">
+                                    <button
+                                      class="px-3 py-1 rounded-md bg-surface-base text-text-base hover:bg-surface-raised-base-hover text-11-medium border border-border-base"
+                                      onClick={() => updateTask(task.id, { status: "todo" })}
+                                    >
+                                      Reset to Todo
+                                    </button>
+                                    <Show when={task.status === "error"}>
+                                      <button
+                                        class="px-3 py-1 rounded-md bg-syntax-success/10 text-syntax-success hover:bg-syntax-success/20 text-11-medium border border-syntax-success/30"
+                                        onClick={() => updateTask(task.id, { status: "done" })}
+                                      >
+                                        Mark Done
+                                      </button>
+                                    </Show>
                                   </div>
                                 </Show>
                               </div>

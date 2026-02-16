@@ -69,6 +69,14 @@ export namespace TaskModeEvent {
     }),
   )
 
+  export const OrchestratorPhaseChanged = BusEvent.define(
+    "taskmode.orchestrator.phase_changed",
+    z.object({
+      phase: z.string(),
+      detail: z.string().optional(),
+    }),
+  )
+
   export const PlanningStarted = BusEvent.define(
     "taskmode.planning.started",
     z.object({

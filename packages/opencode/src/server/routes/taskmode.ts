@@ -93,6 +93,8 @@ export const TaskModeRoutes = lazy(() =>
                     orchestratorRunning: z.boolean(),
                     parentSessionId: z.string().optional(),
                     activeTasks: z.number(),
+                    phase: z.string().optional(),
+                    phaseDetail: z.string().optional(),
                     taskList: TaskList.TaskListFile.optional(),
                     counts: z
                       .object({
@@ -115,6 +117,7 @@ export const TaskModeRoutes = lazy(() =>
         const config = await Config.get()
         const enabled = config.taskMode?.enabled ?? false
         const tddMode = config.taskMode?.tddMode ?? false
+        const enhancedTasks = config.taskMode?.enhancedTasks ?? true
         const listPath = config.taskMode?.listPath ?? ".opencode/tasks/default/task_list.md"
         const paths = TaskList.resolvePaths(Instance.directory, listPath)
         const folderName = getFolderName(listPath)
@@ -125,12 +128,15 @@ export const TaskModeRoutes = lazy(() =>
         return c.json({
           enabled,
           tddMode,
+          enhancedTasks,
           exists: taskList !== null,
           path: paths.taskListPath,
           folderName,
           orchestratorRunning: orchestratorStatus.running,
           parentSessionId: orchestratorStatus.parentSessionId,
           activeTasks: orchestratorStatus.activeTasks,
+          phase: orchestratorStatus.phase,
+          phaseDetail: orchestratorStatus.phaseDetail,
           taskList: taskList ?? undefined,
           counts: taskList ? TaskList.getCounts(taskList) : undefined,
         })
@@ -325,10 +331,11 @@ export const TaskModeRoutes = lazy(() =>
           parentSessionId: z.string().optional(),
           folderName: z.string().optional(),
           tddMode: z.boolean().optional(),
+          enhancedTasks: z.boolean().optional(),
         }),
       ),
       async (c) => {
-        const { startOrchestrator, parentSessionId, folderName, tddMode } = c.req.valid("json")
+        const { startOrchestrator, parentSessionId, folderName, tddMode, enhancedTasks } = c.req.valid("json")
 
         // Build the listPath from folder name
         const listPath = folderName ? getListPath(folderName) : undefined
@@ -339,6 +346,7 @@ export const TaskModeRoutes = lazy(() =>
             enabled: true,
             ...(listPath && { listPath }),
             ...(tddMode !== undefined && { tddMode }),
+            ...(enhancedTasks !== undefined && { enhancedTasks }),
           },
         })
 
@@ -583,6 +591,7 @@ export const TaskModeRoutes = lazy(() =>
         z.object({
           status: TaskList.TaskStatus.optional(),
           assignee: z.string().optional(),
+          title: z.string().optional(),
         }),
       ),
       async (c) => {

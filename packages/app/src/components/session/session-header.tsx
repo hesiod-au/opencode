@@ -72,6 +72,11 @@ export function SessionHeader() {
     tabs().setActive("tasks")
   }
 
+  const openReview = () => {
+    view().reviewPanel.open()
+    tabs().setActive("review")
+  }
+
   const openSnippets = () => {
     if (!params.id) return
     dialog.show(() => <DialogSnippetsPicker sessionID={params.id!} />)
@@ -361,7 +366,7 @@ export function SessionHeader() {
                     keybind={command.keybind("review.toggle")}
                     placement="bottom"
                   >
-                    <Button variant="ghost" class="size-6 p-0" onClick={() => view().reviewPanel.toggle()}>
+                    <Button variant="ghost" class="size-6 p-0" onClick={openReview}>
                       <Icon name="checklist" size="small" class="icon-base" />
                     </Button>
                   </TooltipKeybind>
@@ -575,7 +580,7 @@ export function SessionHeader() {
                   <Button
                     variant="ghost"
                     class="group/review-toggle size-6 p-0"
-                    onClick={() => view().reviewPanel.toggle()}
+                    onClick={openReview}
                     aria-label={language.t("command.review.toggle")}
                     aria-expanded={view().reviewPanel.opened()}
                     aria-controls="review-panel"

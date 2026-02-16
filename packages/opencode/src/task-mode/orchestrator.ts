@@ -13,11 +13,21 @@ import { Session } from "../session"
 import { SessionPrompt } from "../session/prompt"
 import { Identifier } from "../id/id"
 import { Agent } from "../agent/agent"
+import { Storage } from "../storage/storage"
+import { Snapshot } from "../snapshot"
 import fs from "fs/promises"
 import path from "path"
 
 export namespace Orchestrator {
   const log = Log.create({ service: "orchestrator" })
+
+  export type OrchestratorPhase =
+    | "planning"
+    | "test-writing"
+    | "waiting-confirmation"
+    | "executing"
+    | "e2e-testing"
+    | "completing"
 
   // Persisted state stored on disk
   interface PersistedState {
@@ -27,6 +37,8 @@ export namespace Orchestrator {
     launchedTaskIds: string[] // All tasks that were ever launched (prevents re-launching)
     startedAt: number
     completedAt?: number
+    phase?: OrchestratorPhase
+    phaseDetail?: string
     stats: {
       inputTokens: number
       outputTokens: number
@@ -44,10 +56,13 @@ export namespace Orchestrator {
     launchedTaskIds: Set<string> // Track all tasks that have ever been launched (prevents re-launching)
     pollInterval: ReturnType<typeof setInterval> | null
     pollInProgress: boolean // Prevent overlapping poll calls
+    pollStartedAt?: number // Track when current poll started for stuck detection
     abortController: AbortController | null
     startedAt: number
     completedAt?: number
     lastStatusMessage?: string // Track last status to avoid spam
+    phase?: OrchestratorPhase
+    phaseDetail?: string
     stats: {
       inputTokens: number
       outputTokens: number
@@ -57,6 +72,15 @@ export namespace Orchestrator {
   }
 
   let state: OrchestratorState | null = null
+
+  function setPhase(phase: OrchestratorPhase, detail?: string): void {
+    if (!state) return
+    const previous = state.phase
+    state.phase = phase
+    state.phaseDetail = detail
+    log.info("orchestrator phase changed", { from: previous, to: phase, detail })
+    Bus.publish(TaskModeEvent.OrchestratorPhaseChanged, { phase, detail })
+  }
 
   // Log status message only if it's different from the last one (prevents spam)
   async function logStatus(key: string, text: string): Promise<void> {
@@ -98,6 +122,71 @@ export namespace Orchestrator {
     } catch (err) {
       log.error("logAction failed", { error: err, text: text.slice(0, 50) })
     }
+  }
+
+  async function computeFileDiffs(modifiedFiles: Set<string>): Promise<Snapshot.FileDiff[]> {
+    const { execSync } = await import("child_process")
+    const cwd = Instance.directory
+    const diffs: Snapshot.FileDiff[] = []
+
+    for (const file of modifiedFiles) {
+      try {
+        let before = ""
+        let after = ""
+        let additions = 0
+        let deletions = 0
+        let status: "added" | "deleted" | "modified" = "modified"
+
+        // Get file status
+        const statusOutput = execSync(`git status --porcelain -- "${file}"`, { cwd, encoding: "utf-8" }).trim()
+        if (statusOutput.startsWith("??") || statusOutput.startsWith("A ")) {
+          status = "added"
+        } else if (statusOutput.startsWith("D ")) {
+          status = "deleted"
+        }
+
+        // Get before content (from HEAD)
+        if (status !== "added") {
+          try {
+            before = execSync(`git show HEAD:"${file}"`, { cwd, encoding: "utf-8", maxBuffer: 5 * 1024 * 1024 })
+          } catch {
+            before = ""
+          }
+        }
+
+        // Get after content (current working tree)
+        if (status !== "deleted") {
+          try {
+            after = await Bun.file(path.join(cwd, file)).text()
+          } catch {
+            after = ""
+          }
+        }
+
+        // Get numstat for additions/deletions
+        try {
+          const numstat = execSync(`git diff HEAD --numstat -- "${file}"`, { cwd, encoding: "utf-8" }).trim()
+          if (numstat) {
+            const [adds, dels] = numstat.split("\t")
+            additions = adds === "-" ? 0 : parseInt(adds ?? "0")
+            deletions = dels === "-" ? 0 : parseInt(dels ?? "0")
+            if (!Number.isFinite(additions)) additions = 0
+            if (!Number.isFinite(deletions)) deletions = 0
+          }
+        } catch {
+          // For untracked files, count all lines as additions
+          if (status === "added" && after) {
+            additions = after.split("\n").length
+          }
+        }
+
+        diffs.push({ file, before, after, additions, deletions, status })
+      } catch (err) {
+        log.warn("failed to compute diff for file", { file, error: err })
+      }
+    }
+
+    return diffs
   }
 
   async function createFinalReport(
@@ -212,6 +301,24 @@ ${Array.from(stats.modifiedFiles).map(f => `- \`${f}\``).join("\n") || "No files
         text: reportContent,
       })
 
+      // Compute and store file diffs for the review tab
+      if (stats.modifiedFiles.size > 0) {
+        const fileDiffs = await computeFileDiffs(stats.modifiedFiles)
+        await Storage.write(["session_diff", reportSession.id], fileDiffs)
+        await Session.update(reportSession.id, (draft) => {
+          draft.summary = {
+            additions: fileDiffs.reduce((sum, x) => sum + x.additions, 0),
+            deletions: fileDiffs.reduce((sum, x) => sum + x.deletions, 0),
+            files: fileDiffs.length,
+          }
+        })
+        Bus.publish(Session.Event.Diff, {
+          sessionID: reportSession.id,
+          diff: fileDiffs,
+        })
+        log.info("final report diffs stored", { sessionId: reportSession.id, fileCount: fileDiffs.length })
+      }
+
       log.info("final report created", { sessionId: reportSession.id })
 
       // Also log to parent session
@@ -254,9 +361,10 @@ ${Array.from(stats.modifiedFiles).map(f => `- \`${f}\``).join("\n") || "No files
       command = [...baseCommand]
 
       // Add test name filter based on framework
+      // pytest -k uses "or" keyword, not "|" which causes "Wrong expression passed to '-k'"
       const framework = testFramework.framework.toLowerCase()
       if (framework.includes("pytest")) {
-        command.push("-k", e2eTestName)
+        command.push("-k", e2eTestName.replaceAll("|", " or "))
       } else if (framework.includes("bun")) {
         command.push("--test-name-pattern", e2eTestName)
       } else if (framework.includes("vitest")) {
@@ -280,7 +388,8 @@ ${Array.from(stats.modifiedFiles).map(f => `- \`${f}\``).join("\n") || "No files
       const hasGoMod = await Bun.file(`${Instance.directory}/go.mod`).exists().catch(() => false)
 
       if (hasPytest || hasPyprojectToml) {
-        command = ["pytest", "-v", "-k", e2eTestName]
+        // pytest -k uses "or" keyword, not "|"
+        command = ["pytest", "-v", "-k", e2eTestName.replaceAll("|", " or ")]
       } else if (hasGoMod) {
         command = ["go", "test", "-v", "-run", e2eTestName, "./..."]
       } else if (hasBunLock) {
@@ -501,6 +610,8 @@ The E2E test validates that all components work together correctly. Focus on int
       launchedTaskIds: Array.from(state.launchedTaskIds),
       startedAt: state.startedAt,
       completedAt: state.completedAt,
+      phase: state.phase,
+      phaseDetail: state.phaseDetail,
       stats: {
         inputTokens: state.stats.inputTokens,
         outputTokens: state.stats.outputTokens,
@@ -702,9 +813,28 @@ The E2E test validates that all components work together correctly. Focus on int
       }
     }
 
+    // If user sent a message, check for tasks that were manually reset to "todo" via the UI
+    // but are still in launchedTaskIds — clear them so orchestrator will re-run them
+    if (taskList && options?.userPrompt && state) {
+      const manuallyResetIds = taskList.tasks
+        .filter((t) => t.status === "todo" && state!.launchedTaskIds.has(t.id))
+        .map((t) => t.id)
+      if (manuallyResetIds.length > 0) {
+        log.info("found manually-reset tasks, clearing from launchedTaskIds for re-execution", { manuallyResetIds })
+        for (const taskId of manuallyResetIds) {
+          state!.launchedTaskIds.delete(taskId)
+        }
+        await logAction(
+          `**Re-queuing ${manuallyResetIds.length} manually-reset task(s):** ${manuallyResetIds.join(", ")}\n\n` +
+            `Tasks were reset to "todo" via the UI, will be re-executed.`,
+        )
+      }
+    }
+
     if (!taskList) {
       // No task list exists - launch planning agent
       log.info("no task list found, launching planning agent", { hasUserPrompt: !!options?.userPrompt })
+      setPhase("planning")
       await logAction("**Launching planning agent**")
       const planningResult = await PlanningAgent.generatePlan({
         paths,
@@ -712,9 +842,18 @@ The E2E test validates that all components work together correctly. Focus on int
         userPrompt: options?.userPrompt,
       })
 
+      // If planning failed, stop cleanly instead of falling through to runLoop
+      if (!planningResult.success) {
+        log.error("planning failed, stopping orchestrator", { error: planningResult.error })
+        await logAction(`**Planning failed:** ${planningResult.error ?? "Unknown error"}\n\nOrchestrator stopping.`)
+        await stop("error")
+        return
+      }
+
       // If TDD mode is enabled and planning succeeded, run test-writer agent
-      if (taskModeConfig.tddMode && planningResult.success) {
+      if (taskModeConfig.tddMode) {
         log.info("TDD mode enabled, launching test-writer agent")
+        setPhase("test-writing")
         await logAction("**Launching test-writer agent (TDD mode)**")
 
         // Build conversation text from the planning session
@@ -737,6 +876,7 @@ The E2E test validates that all components work together correctly. Focus on int
       // If plan confirmation required, wait for confirmation
       if (taskModeConfig.requirePlanConfirmation) {
         log.info("waiting for plan confirmation")
+        setPhase("waiting-confirmation")
         await logAction("**Waiting for plan confirmation...**")
         // The UI will call confirmPlan() when user confirms
         return
@@ -744,6 +884,8 @@ The E2E test validates that all components work together correctly. Focus on int
     }
 
     // Start the main orchestration loop
+    log.info("entering runLoop")
+    setPhase("executing")
     await runLoop()
   }
 
@@ -796,6 +938,7 @@ The E2E test validates that all components work together correctly. Focus on int
     }
 
     log.info("plan confirmed, starting orchestration")
+    setPhase("executing")
     await logAction("**Plan confirmed, starting execution**")
     await runLoop()
   }
@@ -811,6 +954,8 @@ The E2E test validates that all components work together correctly. Focus on int
     parentSessionId?: string
     startedAt?: number
     completedAt?: number
+    phase?: OrchestratorPhase
+    phaseDetail?: string
     stats?: {
       inputTokens: number
       outputTokens: number
@@ -825,6 +970,8 @@ The E2E test validates that all components work together correctly. Focus on int
       parentSessionId: state?.parentSessionId,
       startedAt: state?.startedAt,
       completedAt: state?.completedAt,
+      phase: state?.phase,
+      phaseDetail: state?.phaseDetail,
       stats: state
         ? {
             inputTokens: state.stats.inputTokens,
@@ -875,6 +1022,7 @@ The E2E test validates that all components work together correctly. Focus on int
         return
       }
       state.pollInProgress = true
+      state.pollStartedAt = Date.now()
 
       try {
         const taskList = await TaskList.read(state.paths.taskListPath)
@@ -902,6 +1050,7 @@ The E2E test validates that all components work together correctly. Focus on int
 
           // Run E2E test if defined (TDD mode)
           if (taskList.e2eTest && !hasErrors) {
+            setPhase("e2e-testing")
             const e2eResult = await runE2ETestLoop(taskList, state.paths, state.parentSessionId)
             if (!e2eResult.success) {
               hasErrors = true
@@ -913,6 +1062,7 @@ The E2E test validates that all components work together correctly. Focus on int
           }
 
           // Create final report as a child session
+          setPhase("completing")
           await createFinalReport(taskList, state.paths, state.parentSessionId, state.stats, {
             testsCouldNotRun,
             testsCouldNotRunReason,
@@ -940,6 +1090,20 @@ The E2E test validates that all components work together correctly. Focus on int
 
         // Find runnable tasks
         const runnableTasks = TaskList.getRunnableTasks(taskList)
+
+        // Diagnostic: detect stuck state (no runnable, no active, but pending remain)
+        const pendingCount = counts.pending
+        if (runnableTasks.length === 0 && state.activeTasks.size === 0 && pendingCount > 0) {
+          log.warn("possible dependency cycle: no runnable tasks, no active tasks, but pending tasks remain", {
+            pendingCount,
+            pendingIds: taskList.tasks.filter((t) => t.status === "todo").map((t) => t.id),
+          })
+          await logAction(
+            `**Possible dependency cycle detected**\n\n` +
+              `No tasks can run but ${pendingCount} task(s) are still pending. ` +
+              `This may indicate a circular dependency. Please review task dependencies.`,
+          )
+        }
 
         log.info("poll: checking tasks", {
           runnableCount: runnableTasks.length,

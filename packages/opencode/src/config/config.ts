@@ -1224,10 +1224,22 @@ export namespace Config {
             .boolean()
             .optional()
             .describe("Enable TDD mode: write tests after planning, run tests before completing tasks"),
+          enhancedTasks: z
+            .boolean()
+            .optional()
+            .describe(
+              "Enable enhanced planning: best-of-2 with Claude CLI + default model, then synthesis (default: true)",
+            ),
           maxTestRetries: z
             .number()
             .optional()
             .describe("Maximum test/fix iterations before failing a task in TDD mode (default: 10)"),
+          taskPromptGuardrails: z
+            .string()
+            .optional()
+            .describe(
+              "Extra instructions injected into every task and test-fix prompt (e.g., runtime constraints, naming conventions)",
+            ),
         })
         .optional()
         .describe("Task mode configuration for multi-agent orchestration"),
