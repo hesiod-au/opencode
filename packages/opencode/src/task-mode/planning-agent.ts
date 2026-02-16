@@ -85,8 +85,8 @@ export namespace PlanningAgent {
     // Deny question tool since no user is available to answer.
     await Session.update(session.id, (draft) => {
       draft.permission = [
-        { permission: "question", action: "deny", pattern: "*" },
         { permission: "*", action: "allow", pattern: "*" },
+        { permission: "question", action: "deny", pattern: "*" },
       ]
     })
     log.info("planning agent created session", { sessionId: session.id, parentId: parentSessionId })
