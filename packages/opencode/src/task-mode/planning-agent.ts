@@ -311,8 +311,8 @@ export namespace PlanningAgent {
       // Write task list and task files immediately so the orchestrator can proceed
       const result = await finalizePlan(planTableOnly, paths, sessionId, parentSessionId)
 
-      // Phase 2: Best-effort description enrichment (files already exist)
-      enrichTaskDescriptions({
+      // Phase 2: Enrich task descriptions before returning
+      await enrichTaskDescriptions({
         plan: planTableOnly,
         paths,
         sessionId,
