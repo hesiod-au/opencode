@@ -80,8 +80,7 @@ export function DialogLoadSnapshot(props: DialogLoadSnapshotProps) {
             <div>
               <p data-slot="warning-title">You have unsaved changes</p>
               <p data-slot="warning-text">
-                Loading this snapshot will replace the current context state. Consider saving a
-                snapshot first.
+                Loading this snapshot will replace the current context state. Consider saving a snapshot first.
               </p>
             </div>
           </div>
@@ -194,11 +193,7 @@ export function DialogLoadSnapshot(props: DialogLoadSnapshotProps) {
               Save First
             </button>
           </Show>
-          <button
-            data-slot="snapshot-load"
-            onClick={handleLoad}
-            disabled={!selectedSnapshot()}
-          >
+          <button data-slot="snapshot-load" onClick={handleLoad} disabled={!selectedSnapshot()}>
             {showWarning() ? "Load Anyway" : "Load Snapshot"}
           </button>
         </div>

@@ -22,6 +22,7 @@ bun typecheck                            # Turbo typecheck across all packages
 ```
 
 **Tests** (run from specific packages, NOT from root):
+
 ```bash
 bun test --cwd packages/opencode                         # Core tests
 bun run --cwd packages/app test:unit                      # App unit tests (HappyDOM)
@@ -29,6 +30,7 @@ bun run --cwd packages/app test:e2e                       # App E2E (Playwright)
 ```
 
 **Build**:
+
 ```bash
 ./packages/opencode/script/build.ts --single              # Standalone executable
 ./script/generate.ts                                       # Regenerate SDK after API changes
@@ -36,26 +38,29 @@ bun run --cwd packages/app test:e2e                       # App E2E (Playwright)
 
 ## Monorepo Structure
 
-| Package | Purpose |
-|---------|---------|
-| `packages/opencode` | Core: CLI, server (Hono), agent logic, tools, providers, sessions |
-| `packages/app` | SolidJS web frontend (Vite, Kobalte, Tailwind) |
-| `packages/desktop` | Tauri native desktop app wrapping the web UI |
-| `packages/ui` | Shared SolidJS component library (used by app + desktop) |
-| `packages/sdk/js` | Published JavaScript SDK for programmatic access |
-| `packages/plugin` | Plugin SDK and tool definitions (@opencode-ai/plugin) |
-| `packages/util` | Shared utilities |
-| `packages/web` | Marketing/docs site (Astro + Starlight) |
-| `packages/enterprise` | Enterprise deployment features |
-| `packages/slack` | Slack bot integration |
+| Package               | Purpose                                                           |
+| --------------------- | ----------------------------------------------------------------- |
+| `packages/opencode`   | Core: CLI, server (Hono), agent logic, tools, providers, sessions |
+| `packages/app`        | SolidJS web frontend (Vite, Kobalte, Tailwind)                    |
+| `packages/desktop`    | Tauri native desktop app wrapping the web UI                      |
+| `packages/ui`         | Shared SolidJS component library (used by app + desktop)          |
+| `packages/sdk/js`     | Published JavaScript SDK for programmatic access                  |
+| `packages/plugin`     | Plugin SDK and tool definitions (@opencode-ai/plugin)             |
+| `packages/util`       | Shared utilities                                                  |
+| `packages/web`        | Marketing/docs site (Astro + Starlight)                           |
+| `packages/enterprise` | Enterprise deployment features                                    |
+| `packages/slack`      | Slack bot integration                                             |
 
 ## Core Architecture (`packages/opencode/src/`)
 
 ### Provider System (`provider/`)
+
 Unified AI provider abstraction using `ai-sdk`. 18+ bundled providers (Anthropic, OpenAI, Google, Azure, Bedrock, Groq, Mistral, etc.). Provider auth via config or environment variables. Custom transforms in `provider/transform.ts`.
 
 ### Session System (`session/`)
+
 Sessions are conversation threads with messages. Key files:
+
 - `session/index.ts` — Core session CRUD and state
 - `session/system.ts` — System prompt building
 - `session/llm.ts` — LLM interaction
@@ -63,15 +68,19 @@ Sessions are conversation threads with messages. Key files:
 - `session/prompt/` — Prompt templates as `.txt` files
 
 ### Agent System (`agent/`)
+
 Multiple agents with different permission levels. Defined in `agent/agent.ts` using Zod schemas. Each agent has configurable permissions, model, temperature, topP. Default agents: "build" (full access), "plan" (read-only). Subagent support via "general" agent. Agent-specific prompts in `agent/prompt/`.
 
 ### Tool System (`tool/`)
+
 Built-in tools: bash, edit, read, write, glob, grep, webfetch, websearch, task, skill, multiedit, apply_patch, batch, codesearch, lsp, ls, todo, plan, question. Tool registry in `tool/registry.ts`. Permission checks enforced on execution. Output truncation in `tool/truncation.ts`. Extensible via plugins.
 
 ### Server (`server/`)
+
 Hono HTTP server with API routes for sessions, config, providers, files, permissions, MCP, PTY, projects. Event streaming for real-time updates. mDNS discovery for local network.
 
 ### Other Key Directories
+
 - `config/` — Multi-source config loading (env, file, workspace `opencode.json`)
 - `permission/` — Glob-based permission rules engine (`permission/next.ts`)
 - `mcp/` — Model Context Protocol server management + OAuth

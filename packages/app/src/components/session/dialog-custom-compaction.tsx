@@ -48,7 +48,8 @@ export function DialogCustomCompaction(props: DialogCustomCompactionProps) {
   const templateEntries = createMemo(() =>
     Object.entries(TEMPLATES).map(([key, value]) => ({
       key: key as TemplateKey,
-      label: key === "default" ? "Default (Full Summary)" : key.replace("-", " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      label:
+        key === "default" ? "Default (Full Summary)" : key.replace("-", " ").replace(/\b\w/g, (c) => c.toUpperCase()),
       preview: value.slice(0, 80) + (value.length > 80 ? "..." : ""),
     })),
   )
@@ -72,9 +73,10 @@ export function DialogCustomCompaction(props: DialogCustomCompactionProps) {
       })
 
       if (result.error) {
-        const errorMsg = typeof result.error === "object" && result.error !== null && "message" in result.error
-          ? String((result.error as { message?: unknown }).message)
-          : "Failed to generate preview"
+        const errorMsg =
+          typeof result.error === "object" && result.error !== null && "message" in result.error
+            ? String((result.error as { message?: unknown }).message)
+            : "Failed to generate preview"
         throw new Error(errorMsg)
       }
 
@@ -116,9 +118,10 @@ export function DialogCustomCompaction(props: DialogCustomCompactionProps) {
         })
 
         if (result.error) {
-          const errorMsg = typeof result.error === "object" && result.error !== null && "message" in result.error
-            ? String((result.error as { message?: unknown }).message)
-            : "Failed to apply selective compaction"
+          const errorMsg =
+            typeof result.error === "object" && result.error !== null && "message" in result.error
+              ? String((result.error as { message?: unknown }).message)
+              : "Failed to apply selective compaction"
           throw new Error(errorMsg)
         }
       } else {
@@ -130,9 +133,10 @@ export function DialogCustomCompaction(props: DialogCustomCompactionProps) {
         })
 
         if (result.error) {
-          const errorMsg = typeof result.error === "object" && result.error !== null && "message" in result.error
-            ? String((result.error as { message?: unknown }).message)
-            : "Failed to apply compaction"
+          const errorMsg =
+            typeof result.error === "object" && result.error !== null && "message" in result.error
+              ? String((result.error as { message?: unknown }).message)
+              : "Failed to apply compaction"
           throw new Error(errorMsg)
         }
       }
@@ -218,9 +222,7 @@ export function DialogCustomCompaction(props: DialogCustomCompactionProps) {
                 <span data-slot="compaction-tokens">~{(preview()?.tokenEstimate ?? 0).toLocaleString()} tokens</span>
               </Show>
             </div>
-            <div data-slot="compaction-preview">
-              {preview()?.summary ?? "No preview available"}
-            </div>
+            <div data-slot="compaction-preview">{preview()?.summary ?? "No preview available"}</div>
             <div data-slot="compaction-hint">
               Review the generated summary. Click "Edit" to modify it before applying.
             </div>
@@ -289,12 +291,7 @@ export function DialogCustomCompaction(props: DialogCustomCompactionProps) {
                 <Icon name="pencil-line" size="small" />
                 Edit
               </button>
-              <button
-                data-slot="compaction-btn"
-                data-variant="primary"
-                onClick={handleApply}
-                disabled={loading()}
-              >
+              <button data-slot="compaction-btn" data-variant="primary" onClick={handleApply} disabled={loading()}>
                 {loading() ? (
                   <>
                     <Icon name="dot-grid" size="small" />

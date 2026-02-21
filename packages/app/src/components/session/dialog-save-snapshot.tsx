@@ -116,11 +116,7 @@ export function DialogSaveSnapshot(props: DialogSaveSnapshotProps) {
           <button data-slot="snapshot-cancel" onClick={handleCancel} disabled={saving()}>
             Cancel
           </button>
-          <button
-            data-slot="snapshot-save"
-            onClick={handleSave}
-            disabled={saving() || !isValid()}
-          >
+          <button data-slot="snapshot-save" onClick={handleSave} disabled={saving() || !isValid()}>
             {saving() ? "Saving..." : "Save Snapshot"}
           </button>
         </div>

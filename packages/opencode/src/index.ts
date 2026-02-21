@@ -27,6 +27,7 @@ import { WebCommand } from "./cli/cmd/web"
 import { PrCommand } from "./cli/cmd/pr"
 import { SessionCommand } from "./cli/cmd/session"
 import { TaskModeCommand } from "./cli/cmd/taskmode"
+import { WorkflowCommand } from "./cli/cmd/workflow"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
@@ -99,6 +100,7 @@ const cli = yargs(hideBin(process.argv))
   .command(PrCommand)
   .command(SessionCommand)
   .command(TaskModeCommand)
+  .command(WorkflowCommand)
   .fail((msg, err) => {
     if (
       msg?.startsWith("Unknown argument") ||

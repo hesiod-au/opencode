@@ -97,7 +97,12 @@ export function useArchive(workspaceDir: string) {
           messageId: input.part.messageID,
           messageRole: input.message.role,
           toolName: toolPart?.tool,
-          toolStatus: toolPart?.state.status === "completed" ? "completed" : toolPart?.state.status === "error" ? "error" : undefined,
+          toolStatus:
+            toolPart?.state.status === "completed"
+              ? "completed"
+              : toolPart?.state.status === "error"
+                ? "error"
+                : undefined,
         },
       }
     })

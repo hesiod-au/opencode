@@ -106,7 +106,12 @@ function mergeServerItems(serverPartIds: string[], store: CanonicalContextStore)
     }
   }
 
-  return { version: 1, items: newItems, knownIds: newKnownIds, excludedContent: store.excludedContent ?? { messages: {}, parts: {} } }
+  return {
+    version: 1,
+    items: newItems,
+    knownIds: newKnownIds,
+    excludedContent: store.excludedContent ?? { messages: {}, parts: {} },
+  }
 }
 
 export interface CanonicalContextProviderProps extends ParentProps {

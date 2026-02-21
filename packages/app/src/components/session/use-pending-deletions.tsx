@@ -116,11 +116,7 @@ export function PendingDeletionsProvider(props: ParentProps) {
     cancelAllDeletions,
   }
 
-  return (
-    <PendingDeletionsContext.Provider value={value}>
-      {props.children}
-    </PendingDeletionsContext.Provider>
-  )
+  return <PendingDeletionsContext.Provider value={value}>{props.children}</PendingDeletionsContext.Provider>
 }
 
 export function usePendingDeletions() {

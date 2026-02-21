@@ -1197,6 +1197,26 @@ export namespace Config {
             model: { codex: 0.3 },
           },
         })),
+      workflows: z
+        .object({
+          active: z.string().optional().describe("Currently active workflow ID"),
+        })
+        .optional()
+        .describe("Workflow configuration"),
+      prReview: z
+        .object({
+          enabled: z.boolean().optional().describe("Enable PR review workflow"),
+          pollIntervalMinutes: z.number().optional().describe("Minutes between comment checks (default: 10)"),
+          maxCycles: z.number().optional().describe("Max review/fix cycles (default: 20)"),
+          testCommand: z.string().optional().describe("Test command (auto-detected if omitted)"),
+          prNumber: z.number().optional().describe("PR number (auto-detected from branch)"),
+          reviewRequestComment: z
+            .string()
+            .optional()
+            .describe("Comment to post after each fix cycle (default: '@codex review')"),
+        })
+        .optional()
+        .describe("PR review workflow configuration"),
       taskMode: z
         .object({
           enabled: z.boolean().optional().describe("Enable task mode for multi-agent orchestration"),
@@ -1224,12 +1244,6 @@ export namespace Config {
             .boolean()
             .optional()
             .describe("Enable TDD mode: write tests after planning, run tests before completing tasks"),
-          enhancedTasks: z
-            .boolean()
-            .optional()
-            .describe(
-              "Enable enhanced planning: best-of-2 with Claude CLI + default model, then synthesis (default: true)",
-            ),
           maxTestRetries: z
             .number()
             .optional()
@@ -1443,11 +1457,7 @@ export namespace Config {
     const candidates = ["opencode.jsonc", "opencode.json"]
     let filepath: string | undefined
     for (const file of candidates) {
-      const found = await Filesystem.findUp(
-        file,
-        Instance.directory,
-        Instance.worktree,
-      )
+      const found = await Filesystem.findUp(file, Instance.directory, Instance.worktree)
       if (found.length > 0) {
         filepath = found[0]
         break
@@ -1455,10 +1465,7 @@ export namespace Config {
     }
     filepath ??= path.join(Instance.directory, "opencode.json")
     const existing = await loadFile(filepath)
-    await Bun.write(
-      filepath,
-      JSON.stringify(mergeDeep(existing, config), null, 2),
-    )
+    await Bun.write(filepath, JSON.stringify(mergeDeep(existing, config), null, 2))
     await Instance.dispose()
   }
 

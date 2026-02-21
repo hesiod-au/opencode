@@ -2232,6 +2232,347 @@
         ]
       }
     },
+    "/session/{sessionID}/compact/preview": {
+      "post": {
+        "operationId": "session.compactPreview",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Session ID"
+          }
+        ],
+        "summary": "Preview compaction",
+        "description": "Generate a preview of what the compaction summary would look like without applying it.",
+        "responses": {
+          "200": {
+            "description": "Compaction preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "summary": {
+                      "type": "string"
+                    },
+                    "tokenEstimate": {
+                      "type": "number"
+                    }
+                  },
+                  "required": ["summary", "tokenEstimate"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "providerID": {
+                    "description": "Provider ID for the model",
+                    "type": "string"
+                  },
+                  "modelID": {
+                    "description": "Model ID to use for generating the summary",
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "description": "Custom compaction prompt",
+                    "type": "string"
+                  },
+                  "partIds": {
+                    "description": "Part IDs for selective compaction",
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": ["providerID", "modelID"]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.compactPreview({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/session/{sessionID}/compact/apply": {
+      "post": {
+        "operationId": "session.compactApply",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Session ID"
+          }
+        ],
+        "summary": "Apply custom compaction",
+        "description": "Apply a custom or edited summary as the compaction result.",
+        "responses": {
+          "200": {
+            "description": "Applied compaction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantMessage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "providerID": {
+                    "description": "Provider ID",
+                    "type": "string"
+                  },
+                  "modelID": {
+                    "description": "Model ID",
+                    "type": "string"
+                  },
+                  "summary": {
+                    "description": "The summary text to apply",
+                    "type": "string"
+                  }
+                },
+                "required": ["providerID", "modelID", "summary"]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.compactApply({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/session/{sessionID}/compact/selective": {
+      "post": {
+        "operationId": "session.compactSelective",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Session ID"
+          }
+        ],
+        "summary": "Apply selective compaction",
+        "description": "Apply a summary to selected parts and mark them as excluded. Unlike regular compaction, this does not create a boundary - original messages stay visible but are excluded from LLM submissions.",
+        "responses": {
+          "200": {
+            "description": "Selective compaction applied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "assistantMsg": {
+                      "$ref": "#/components/schemas/AssistantMessage"
+                    },
+                    "markedCount": {
+                      "type": "number"
+                    }
+                  },
+                  "required": ["assistantMsg", "markedCount"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "providerID": {
+                    "description": "Provider ID",
+                    "type": "string"
+                  },
+                  "modelID": {
+                    "description": "Model ID",
+                    "type": "string"
+                  },
+                  "summary": {
+                    "description": "The summary text to apply",
+                    "type": "string"
+                  },
+                  "partIds": {
+                    "description": "Part IDs to mark as excluded",
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": ["providerID", "modelID", "summary", "partIds"]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.compactSelective({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/session/{sessionID}/compact/templates": {
+      "get": {
+        "operationId": "session.compactTemplates",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "sessionID",
+            "required": true
+          }
+        ],
+        "summary": "Get compaction templates",
+        "description": "Get available compaction prompt templates.",
+        "responses": {
+          "200": {
+            "description": "Compaction templates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.compactTemplates({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/session/{sessionID}/message": {
       "get": {
         "operationId": "session.messages",
@@ -2427,7 +2768,6 @@
                     "type": "string"
                   },
                   "messages": {
-                    "description": "Optional: Override the message history entirely. When provided, this array is used instead of fetching messages from storage. Enables client-controlled context for snapshots, exclusions, and edited content.",
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -2821,6 +3161,24 @@
                   "variant": {
                     "type": "string"
                   },
+                  "messages": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "info": {
+                          "$ref": "#/components/schemas/Message"
+                        },
+                        "parts": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Part"
+                          }
+                        }
+                      },
+                      "required": ["info", "parts"]
+                    }
+                  },
                   "parts": {
                     "type": "array",
                     "items": {
@@ -2955,6 +3313,9 @@
                           "properties": {
                             "id": {
                               "type": "string"
+                            },
+                            "excluded": {
+                              "type": "boolean"
                             },
                             "type": {
                               "type": "string",
@@ -4855,6 +5216,1443 @@
         ]
       }
     },
+    "/taskmode": {
+      "get": {
+        "operationId": "taskmode.get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Get task list content",
+        "description": "Get the raw markdown content of the task list file",
+        "responses": {
+          "200": {
+            "description": "Task list markdown content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "exists": {
+                      "type": "boolean"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["exists", "path"]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.taskmode.get({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/taskmode/status": {
+      "get": {
+        "operationId": "taskmode.status",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Get task list status",
+        "description": "Get the parsed task list with statuses and counts",
+        "responses": {
+          "200": {
+            "description": "Task list status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "exists": {
+                      "type": "boolean"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "orchestratorRunning": {
+                      "type": "boolean"
+                    },
+                    "parentSessionId": {
+                      "type": "string"
+                    },
+                    "activeTasks": {
+                      "type": "number"
+                    },
+                    "phase": {
+                      "type": "string"
+                    },
+                    "phaseDetail": {
+                      "type": "string"
+                    },
+                    "taskList": {
+                      "type": "object",
+                      "properties": {
+                        "title": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "tasks": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": ["todo", "in-progress", "done", "error", "paused"]
+                              },
+                              "assignee": {
+                                "type": "string"
+                              },
+                              "dependencies": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "file": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["id", "title", "status"]
+                          }
+                        },
+                        "e2eTest": {
+                          "type": "string"
+                        },
+                        "testFramework": {
+                          "type": "object",
+                          "properties": {
+                            "language": {
+                              "type": "string"
+                            },
+                            "framework": {
+                              "type": "string"
+                            },
+                            "runCommand": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["language", "framework"]
+                        }
+                      },
+                      "required": ["tasks"]
+                    },
+                    "counts": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "number"
+                        },
+                        "pending": {
+                          "type": "number"
+                        },
+                        "inProgress": {
+                          "type": "number"
+                        },
+                        "completed": {
+                          "type": "number"
+                        },
+                        "error": {
+                          "type": "number"
+                        },
+                        "paused": {
+                          "type": "number"
+                        }
+                      },
+                      "required": ["total", "pending", "inProgress", "completed", "error", "paused"]
+                    }
+                  },
+                  "required": ["enabled", "exists", "path", "orchestratorRunning", "activeTasks"]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.taskmode.status({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/taskmode/folders": {
+      "get": {
+        "operationId": "taskmode.folders",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "List task folders",
+        "description": "List all existing task folders in .opencode/tasks/",
+        "responses": {
+          "200": {
+            "description": "List of task folders",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "folders": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "hasTaskList": {
+                            "type": "boolean"
+                          },
+                          "taskCount": {
+                            "type": "number"
+                          }
+                        },
+                        "required": ["name", "hasTaskList"]
+                      }
+                    },
+                    "currentFolder": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["folders", "currentFolder"]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.taskmode.folders({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/taskmode/task/{taskId}": {
+      "get": {
+        "operationId": "taskmode.task.get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "taskId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Get task details",
+        "description": "Get details for a specific task",
+        "responses": {
+          "200": {
+            "description": "Task details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["todo", "in-progress", "done", "error", "paused"]
+                        },
+                        "assignee": {
+                          "type": "string"
+                        },
+                        "dependencies": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "file": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["id", "title", "status"]
+                    },
+                    "file": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["todo", "in-progress", "done", "error", "paused"]
+                        },
+                        "dependencies": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "files": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "tests": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "comments": {
+                          "type": "string"
+                        },
+                        "sessionId": {
+                          "type": "string"
+                        },
+                        "startedAt": {
+                          "type": "string"
+                        },
+                        "completedAt": {
+                          "type": "string"
+                        },
+                        "attemptCount": {
+                          "type": "number"
+                        }
+                      },
+                      "required": ["id", "title", "description"]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.taskmode.task.get({\n  ...\n})"
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "taskmode.task.update",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "taskId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Update task",
+        "description": "Update a task's status or other properties",
+        "responses": {
+          "200": {
+            "description": "Task updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "task": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["todo", "in-progress", "done", "error", "paused"]
+                        },
+                        "assignee": {
+                          "type": "string"
+                        },
+                        "dependencies": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "file": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["id", "title", "status"]
+                    }
+                  },
+                  "required": ["success"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": ["todo", "in-progress", "done", "error", "paused"]
+                  },
+                  "assignee": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.taskmode.task.update({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/taskmode/tasks/details": {
+      "get": {
+        "operationId": "taskmode.tasks.details",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Get all task details",
+        "description": "Get the full details of all tasks from their task files",
+        "responses": {
+          "200": {
+            "description": "All task details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tasks": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["todo", "in-progress", "done", "error", "paused"]
+                          },
+                          "dependencies": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "files": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "tests": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "comments": {
+                            "type": "string"
+                          },
+                          "sessionId": {
+                            "type": "string"
+                          },
+                          "startedAt": {
+                            "type": "string"
+                          },
+                          "completedAt": {
+                            "type": "string"
+                          },
+                          "attemptCount": {
+                            "type": "number"
+                          }
+                        },
+                        "required": ["id", "title", "description"]
+                      }
+                    }
+                  },
+                  "required": ["tasks"]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.taskmode.tasks.details({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/taskmode/enable": {
+      "post": {
+        "operationId": "taskmode.enable",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Enable task mode",
+        "description": "Enable task mode and optionally start the orchestrator",
+        "responses": {
+          "200": {
+            "description": "Task mode enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "orchestratorStarted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["success", "orchestratorStarted"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "startOrchestrator": {
+                    "default": true,
+                    "type": "boolean"
+                  },
+                  "parentSessionId": {
+                    "type": "string"
+                  },
+                  "folderName": {
+                    "type": "string"
+                  },
+                  "tddMode": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.taskmode.enable({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/taskmode/disable": {
+      "post": {
+        "operationId": "taskmode.disable",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Disable task mode",
+        "description": "Disable task mode and stop the orchestrator",
+        "responses": {
+          "200": {
+            "description": "Task mode disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["success"]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.taskmode.disable({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/taskmode/confirm": {
+      "post": {
+        "operationId": "taskmode.confirm",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Confirm generated plan",
+        "description": "Confirm the generated plan and start execution",
+        "responses": {
+          "200": {
+            "description": "Plan confirmed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["success"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.taskmode.confirm({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/taskmode/start": {
+      "post": {
+        "operationId": "taskmode.start",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Start orchestrator",
+        "description": "Start the task orchestrator",
+        "responses": {
+          "200": {
+            "description": "Orchestrator started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "running": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["success", "running"]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "parentSessionId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.taskmode.start({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/taskmode/stop": {
+      "post": {
+        "operationId": "taskmode.stop",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Stop orchestrator",
+        "description": "Stop the task orchestrator",
+        "responses": {
+          "200": {
+            "description": "Orchestrator stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["success"]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.taskmode.stop({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/taskmode/stats": {
+      "get": {
+        "operationId": "taskmode.stats",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Get completion stats",
+        "description": "Get completion statistics including time, tokens, cost, and modified files",
+        "responses": {
+          "200": {
+            "description": "Completion stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "exists": {
+                      "type": "boolean"
+                    },
+                    "stats": {
+                      "type": "object",
+                      "properties": {
+                        "startedAt": {
+                          "type": "number"
+                        },
+                        "completedAt": {
+                          "type": "number"
+                        },
+                        "durationMs": {
+                          "type": "number"
+                        },
+                        "inputTokens": {
+                          "type": "number"
+                        },
+                        "outputTokens": {
+                          "type": "number"
+                        },
+                        "cost": {
+                          "type": "number"
+                        },
+                        "modifiedFiles": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": ["inputTokens", "outputTokens", "cost", "modifiedFiles"]
+                    }
+                  },
+                  "required": ["exists"]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.taskmode.stats({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/taskmode/diff": {
+      "get": {
+        "operationId": "taskmode.diff",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Get unified diff",
+        "description": "Get a unified diff of all files modified during the task execution",
+        "responses": {
+          "200": {
+            "description": "Unified diff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "diff": {
+                      "type": "string"
+                    },
+                    "fileCount": {
+                      "type": "number"
+                    }
+                  },
+                  "required": ["diff", "fileCount"]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.taskmode.diff({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/taskmode/archive": {
+      "post": {
+        "operationId": "taskmode.archive",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Archive task folder",
+        "description": "Move the task folder to the archived directory",
+        "responses": {
+          "200": {
+            "description": "Task folder archived",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "archivePath": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["success", "archivePath"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.taskmode.archive({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/taskmode/create-pr": {
+      "post": {
+        "operationId": "taskmode.createPr",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Create pull request",
+        "description": "Create a pull request with all files modified during task execution",
+        "responses": {
+          "200": {
+            "description": "Pull request created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "prUrl": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["success"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string"
+                  },
+                  "branch": {
+                    "type": "string"
+                  }
+                },
+                "required": ["title"]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.taskmode.createPr({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/workflow/list": {
+      "get": {
+        "operationId": "workflow.list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "List registered workflows",
+        "responses": {
+          "200": {
+            "description": "List of workflows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkflowInfo"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.workflow.list({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/workflow/status": {
+      "get": {
+        "operationId": "workflow.status",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Get active workflow status",
+        "responses": {
+          "200": {
+            "description": "Active workflow status or null",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workflowId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "$ref": "#/components/schemas/WorkflowStatus"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.workflow.status({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/workflow/{id}/status": {
+      "get": {
+        "operationId": "workflow.getStatus",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Get specific workflow status",
+        "responses": {
+          "200": {
+            "description": "Workflow status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.workflow.getStatus({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/workflow/{id}/start": {
+      "post": {
+        "operationId": "workflow.start",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Start a workflow",
+        "responses": {
+          "200": {
+            "description": "Workflow started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["ok"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "parentSessionId": {
+                    "type": "string"
+                  },
+                  "userPrompt": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.workflow.start({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/workflow/{id}/stop": {
+      "post": {
+        "operationId": "workflow.stop",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Stop a workflow",
+        "responses": {
+          "200": {
+            "description": "Workflow stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["ok"]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.workflow.stop({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/workflow/{id}/confirm": {
+      "post": {
+        "operationId": "workflow.confirm",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Confirm workflow plan",
+        "responses": {
+          "200": {
+            "description": "Plan confirmed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["ok"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.workflow.confirm({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/tui/append-prompt": {
       "post": {
         "operationId": "tui.appendPrompt",
@@ -6496,6 +8294,9 @@
           "messageID": {
             "type": "string"
           },
+          "excluded": {
+            "type": "boolean"
+          },
           "type": {
             "type": "string",
             "const": "text"
@@ -6543,6 +8344,9 @@
           "messageID": {
             "type": "string"
           },
+          "excluded": {
+            "type": "boolean"
+          },
           "type": {
             "type": "string",
             "const": "subtask"
@@ -6585,6 +8389,9 @@
           },
           "messageID": {
             "type": "string"
+          },
+          "excluded": {
+            "type": "boolean"
           },
           "type": {
             "type": "string",
@@ -6750,6 +8557,9 @@
           },
           "messageID": {
             "type": "string"
+          },
+          "excluded": {
+            "type": "boolean"
           },
           "type": {
             "type": "string",
@@ -6944,6 +8754,9 @@
           "messageID": {
             "type": "string"
           },
+          "excluded": {
+            "type": "boolean"
+          },
           "type": {
             "type": "string",
             "const": "tool"
@@ -6979,6 +8792,9 @@
           "messageID": {
             "type": "string"
           },
+          "excluded": {
+            "type": "boolean"
+          },
           "type": {
             "type": "string",
             "const": "step-start"
@@ -7000,6 +8816,9 @@
           },
           "messageID": {
             "type": "string"
+          },
+          "excluded": {
+            "type": "boolean"
           },
           "type": {
             "type": "string",
@@ -7056,6 +8875,9 @@
           "messageID": {
             "type": "string"
           },
+          "excluded": {
+            "type": "boolean"
+          },
           "type": {
             "type": "string",
             "const": "snapshot"
@@ -7077,6 +8899,9 @@
           },
           "messageID": {
             "type": "string"
+          },
+          "excluded": {
+            "type": "boolean"
           },
           "type": {
             "type": "string",
@@ -7105,6 +8930,9 @@
           },
           "messageID": {
             "type": "string"
+          },
+          "excluded": {
+            "type": "boolean"
           },
           "type": {
             "type": "string",
@@ -7147,6 +8975,9 @@
           "messageID": {
             "type": "string"
           },
+          "excluded": {
+            "type": "boolean"
+          },
           "type": {
             "type": "string",
             "const": "retry"
@@ -7180,6 +9011,9 @@
           },
           "messageID": {
             "type": "string"
+          },
+          "excluded": {
+            "type": "boolean"
           },
           "type": {
             "type": "string",
@@ -7644,6 +9478,304 @@
               }
             },
             "required": ["file", "event"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.taskmode.task_list.updated": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "taskmode.task_list.updated"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "taskListPath": {
+                "type": "string"
+              },
+              "taskCount": {
+                "type": "number"
+              },
+              "pendingCount": {
+                "type": "number"
+              },
+              "inProgressCount": {
+                "type": "number"
+              },
+              "completedCount": {
+                "type": "number"
+              }
+            },
+            "required": ["taskListPath", "taskCount", "pendingCount", "inProgressCount", "completedCount"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.taskmode.task.started": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "taskmode.task.started"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "taskId": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": ["taskId", "title", "sessionId"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.taskmode.task.completed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "taskmode.task.completed"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "taskId": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "sessionId": {
+                "type": "string"
+              },
+              "comments": {
+                "type": "string"
+              }
+            },
+            "required": ["taskId", "title", "sessionId"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.taskmode.task.paused": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "taskmode.task.paused"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "taskId": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "sessionId": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "collidingTaskId": {
+                "type": "string"
+              },
+              "collidingFile": {
+                "type": "string"
+              }
+            },
+            "required": ["taskId", "title", "sessionId", "reason"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.taskmode.task.error": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "taskmode.task.error"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "taskId": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "sessionId": {
+                "type": "string"
+              },
+              "error": {
+                "type": "string"
+              }
+            },
+            "required": ["taskId", "title", "error"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.taskmode.orchestrator.started": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "taskmode.orchestrator.started"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "taskListPath": {
+                "type": "string"
+              }
+            },
+            "required": ["taskListPath"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.taskmode.orchestrator.stopped": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "taskmode.orchestrator.stopped"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "taskListPath": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string",
+                "enum": ["completed", "error", "manual"]
+              },
+              "reportSessionId": {
+                "type": "string"
+              }
+            },
+            "required": ["taskListPath", "reason"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.taskmode.orchestrator.phase_changed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "taskmode.orchestrator.phase_changed"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "required": ["phase"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.taskmode.planning.started": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "taskmode.planning.started"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": ["sessionId"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.taskmode.planning.completed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "taskmode.planning.completed"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              },
+              "taskCount": {
+                "type": "number"
+              }
+            },
+            "required": ["sessionId", "taskCount"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.taskmode.test_writing.started": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "taskmode.test_writing.started"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              },
+              "taskCount": {
+                "type": "number"
+              }
+            },
+            "required": ["sessionId", "taskCount"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.taskmode.test_writing.completed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "taskmode.test_writing.completed"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              },
+              "tasksWithTests": {
+                "type": "number"
+              }
+            },
+            "required": ["sessionId", "tasksWithTests"]
           }
         },
         "required": ["type", "properties"]
@@ -8295,6 +10427,159 @@
         },
         "required": ["type", "properties"]
       },
+      "Event.workflow.started": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "workflow.started"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "workflowId": {
+                "type": "string"
+              },
+              "parentSessionId": {
+                "type": "string"
+              }
+            },
+            "required": ["workflowId"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.workflow.stopped": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "workflow.stopped"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "workflowId": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string",
+                "enum": ["completed", "error", "manual"]
+              },
+              "reportSessionId": {
+                "type": "string"
+              }
+            },
+            "required": ["workflowId", "reason"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.workflow.phase_changed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "workflow.phase_changed"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "workflowId": {
+                "type": "string"
+              },
+              "phase": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "required": ["workflowId", "phase"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.workflow.progress": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "workflow.progress"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "workflowId": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["workflowId", "message"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.pr-review.cycle.started": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "pr-review.cycle.started"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "cycleNumber": {
+                "type": "number"
+              },
+              "commentCount": {
+                "type": "number"
+              }
+            },
+            "required": ["cycleNumber", "commentCount"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.pr-review.cycle.completed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "pr-review.cycle.completed"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "cycleNumber": {
+                "type": "number"
+              },
+              "commitSha": {
+                "type": "string"
+              }
+            },
+            "required": ["cycleNumber", "commitSha"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.pr-review.no_new_comments": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "pr-review.no_new_comments"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "required": ["type", "properties"]
+      },
       "Event": {
         "anyOf": [
           {
@@ -8364,6 +10649,42 @@
             "$ref": "#/components/schemas/Event.file.watcher.updated"
           },
           {
+            "$ref": "#/components/schemas/Event.taskmode.task_list.updated"
+          },
+          {
+            "$ref": "#/components/schemas/Event.taskmode.task.started"
+          },
+          {
+            "$ref": "#/components/schemas/Event.taskmode.task.completed"
+          },
+          {
+            "$ref": "#/components/schemas/Event.taskmode.task.paused"
+          },
+          {
+            "$ref": "#/components/schemas/Event.taskmode.task.error"
+          },
+          {
+            "$ref": "#/components/schemas/Event.taskmode.orchestrator.started"
+          },
+          {
+            "$ref": "#/components/schemas/Event.taskmode.orchestrator.stopped"
+          },
+          {
+            "$ref": "#/components/schemas/Event.taskmode.orchestrator.phase_changed"
+          },
+          {
+            "$ref": "#/components/schemas/Event.taskmode.planning.started"
+          },
+          {
+            "$ref": "#/components/schemas/Event.taskmode.planning.completed"
+          },
+          {
+            "$ref": "#/components/schemas/Event.taskmode.test_writing.started"
+          },
+          {
+            "$ref": "#/components/schemas/Event.taskmode.test_writing.completed"
+          },
+          {
             "$ref": "#/components/schemas/Event.todo.updated"
           },
           {
@@ -8422,6 +10743,27 @@
           },
           {
             "$ref": "#/components/schemas/Event.worktree.failed"
+          },
+          {
+            "$ref": "#/components/schemas/Event.workflow.started"
+          },
+          {
+            "$ref": "#/components/schemas/Event.workflow.stopped"
+          },
+          {
+            "$ref": "#/components/schemas/Event.workflow.phase_changed"
+          },
+          {
+            "$ref": "#/components/schemas/Event.workflow.progress"
+          },
+          {
+            "$ref": "#/components/schemas/Event.pr-review.cycle.started"
+          },
+          {
+            "$ref": "#/components/schemas/Event.pr-review.cycle.completed"
+          },
+          {
+            "$ref": "#/components/schemas/Event.pr-review.no_new_comments"
           }
         ]
       },
@@ -9876,6 +12218,17 @@
             }
           },
           "compaction": {
+            "default": {
+              "relevance": {
+                "agent": {
+                  "task": true
+                },
+                "target": 0.6,
+                "model": {
+                  "codex": 0.3
+                }
+              }
+            },
             "type": "object",
             "properties": {
               "auto": {
@@ -9885,6 +12238,166 @@
               "prune": {
                 "description": "Enable pruning of old tool outputs (default: true)",
                 "type": "boolean"
+              },
+              "relevance": {
+                "default": {
+                  "agent": {
+                    "task": true
+                  },
+                  "target": 0.6,
+                  "model": {
+                    "codex": 0.3
+                  }
+                },
+                "type": "object",
+                "properties": {
+                  "agent": {
+                    "description": "Agent enablement for relevance compaction",
+                    "default": {
+                      "task": true
+                    },
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "boolean"
+                    }
+                  },
+                  "mode": {
+                    "description": "Mode enablement for relevance compaction",
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "boolean"
+                    }
+                  },
+                  "trigger": {
+                    "description": "Context usage ratio to trigger relevance compaction",
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "target": {
+                    "description": "Target context usage ratio after compaction",
+                    "default": 0.6,
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "model": {
+                    "description": "Model-specific target ratios (keys may be provider/model or model id)",
+                    "default": {
+                      "codex": 0.3
+                    },
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "recent": {
+                    "description": "Number of recent messages to keep",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "reserve": {
+                    "description": "Reserved output tokens",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "workflows": {
+            "description": "Workflow configuration",
+            "type": "object",
+            "properties": {
+              "active": {
+                "description": "Currently active workflow ID",
+                "type": "string"
+              }
+            }
+          },
+          "prReview": {
+            "description": "PR review workflow configuration",
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "description": "Enable PR review workflow",
+                "type": "boolean"
+              },
+              "pollIntervalMinutes": {
+                "description": "Minutes between comment checks (default: 10)",
+                "type": "number"
+              },
+              "maxCycles": {
+                "description": "Max review/fix cycles (default: 20)",
+                "type": "number"
+              },
+              "testCommand": {
+                "description": "Test command (auto-detected if omitted)",
+                "type": "string"
+              },
+              "prNumber": {
+                "description": "PR number (auto-detected from branch)",
+                "type": "number"
+              },
+              "reviewRequestComment": {
+                "description": "Comment to post after each fix cycle (default: '@codex review')",
+                "type": "string"
+              }
+            }
+          },
+          "taskMode": {
+            "description": "Task mode configuration for multi-agent orchestration",
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "description": "Enable task mode for multi-agent orchestration",
+                "type": "boolean"
+              },
+              "listPath": {
+                "description": "Path to the task list markdown file (default: .opencode/tasks/default/task_list.md)",
+                "type": "string"
+              },
+              "requirePlanConfirmation": {
+                "description": "Require user confirmation before executing generated plans",
+                "type": "boolean"
+              },
+              "agentLaunchStaggerSeconds": {
+                "description": "Seconds to wait between launching task agents (default: 5)",
+                "type": "number"
+              },
+              "pollIntervalMs": {
+                "description": "Milliseconds between polling for task list changes (default: 1000)",
+                "type": "number"
+              },
+              "maxConcurrentTasks": {
+                "description": "Maximum number of task agents to run concurrently (default: 3)",
+                "type": "number"
+              },
+              "tddMode": {
+                "description": "Enable TDD mode: write tests after planning, run tests before completing tasks",
+                "type": "boolean"
+              },
+              "maxTestRetries": {
+                "description": "Maximum test/fix iterations before failing a task in TDD mode (default: 10)",
+                "type": "number"
+              },
+              "taskPromptGuardrails": {
+                "description": "Extra instructions injected into every task and test-fix prompt (e.g., runtime constraints, naming conventions)",
+                "type": "string"
               }
             }
           },
@@ -10390,6 +12903,9 @@
           "id": {
             "type": "string"
           },
+          "excluded": {
+            "type": "boolean"
+          },
           "type": {
             "type": "string",
             "const": "text"
@@ -10431,6 +12947,9 @@
           "id": {
             "type": "string"
           },
+          "excluded": {
+            "type": "boolean"
+          },
           "type": {
             "type": "string",
             "const": "file"
@@ -10455,6 +12974,9 @@
         "properties": {
           "id": {
             "type": "string"
+          },
+          "excluded": {
+            "type": "boolean"
           },
           "type": {
             "type": "string",
@@ -10490,6 +13012,9 @@
         "properties": {
           "id": {
             "type": "string"
+          },
+          "excluded": {
+            "type": "boolean"
           },
           "type": {
             "type": "string",
@@ -10781,6 +13306,76 @@
             "$ref": "#/components/schemas/MCPStatusNeedsClientRegistration"
           }
         ]
+      },
+      "WorkflowInfo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "hasConfirm": {
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "name", "running", "hasConfirm"]
+      },
+      "WorkflowStatus": {
+        "type": "object",
+        "properties": {
+          "running": {
+            "type": "boolean"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "phaseDetail": {
+            "type": "string"
+          },
+          "parentSessionId": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "number"
+          },
+          "completedAt": {
+            "type": "number"
+          },
+          "stats": {
+            "type": "object",
+            "properties": {
+              "inputTokens": {
+                "type": "number"
+              },
+              "outputTokens": {
+                "type": "number"
+              },
+              "cost": {
+                "type": "number"
+              },
+              "modifiedFiles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["inputTokens", "outputTokens", "cost", "modifiedFiles"]
+          },
+          "extra": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["running"]
       },
       "Path": {
         "type": "object",

@@ -22,8 +22,7 @@ export function DialogPartEditor(props: DialogPartEditorProps) {
 
   const isTextPart = () => props.part.type === "text"
   const isToolPart = () => props.part.type === "tool"
-  const isCompletedTool = () =>
-    props.part.type === "tool" && (props.part as ToolPart).state.status === "completed"
+  const isCompletedTool = () => props.part.type === "tool" && (props.part as ToolPart).state.status === "completed"
 
   // Check if there's an existing edit for this part
   const existingEdit = createMemo(() => loadedSnapshotCtx.getEdit(props.part.id))
@@ -156,11 +155,7 @@ export function DialogPartEditor(props: DialogPartEditorProps) {
               Revert to Original
             </button>
           </Show>
-          <button
-            data-slot="part-editor-save"
-            onClick={handleSave}
-            disabled={!canEdit()}
-          >
+          <button data-slot="part-editor-save" onClick={handleSave} disabled={!canEdit()}>
             Save
           </button>
         </div>

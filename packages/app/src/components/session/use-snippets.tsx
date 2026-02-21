@@ -102,7 +102,10 @@ export function substituteVariables(template: string, context: SubstituteContext
 }
 
 export function useSnippets() {
-  const [store, setStore, , ready] = persisted<SnippetsStore>(Persist.global("snippets"), createStore<SnippetsStore>({ snippets: [] }))
+  const [store, setStore, , ready] = persisted<SnippetsStore>(
+    Persist.global("snippets"),
+    createStore<SnippetsStore>({ snippets: [] }),
+  )
 
   const snippets = createMemo(() => {
     const custom = [...store.snippets].sort((a, b) => b.updatedAt - a.updatedAt)
@@ -127,7 +130,13 @@ export function useSnippets() {
     return byCategory
   })
 
-  const saveSnippet = (input: { name: string; description?: string; template: string; category?: string; tags?: string[] }): Snippet => {
+  const saveSnippet = (input: {
+    name: string
+    description?: string
+    template: string
+    category?: string
+    tags?: string[]
+  }): Snippet => {
     const snippet: Snippet = {
       id: generateId(),
       name: input.name,
@@ -144,7 +153,10 @@ export function useSnippets() {
     return snippet
   }
 
-  const updateSnippet = (id: string, updates: Partial<Pick<Snippet, "name" | "description" | "template" | "category" | "tags">>) => {
+  const updateSnippet = (
+    id: string,
+    updates: Partial<Pick<Snippet, "name" | "description" | "template" | "category" | "tags">>,
+  ) => {
     if (BUILT_IN_SNIPPETS.some((s) => s.id === id)) {
       return
     }
@@ -157,8 +169,8 @@ export function useSnippets() {
               ...updates,
               updatedAt: Date.now(),
             }
-          : s
-      )
+          : s,
+      ),
     )
   }
 
@@ -222,7 +234,7 @@ export function useSnippets() {
         s.name.toLowerCase().includes(lowerQuery) ||
         s.description?.toLowerCase().includes(lowerQuery) ||
         s.template.toLowerCase().includes(lowerQuery) ||
-        s.tags?.some((t) => t.toLowerCase().includes(lowerQuery))
+        s.tags?.some((t) => t.toLowerCase().includes(lowerQuery)),
     )
   }
 

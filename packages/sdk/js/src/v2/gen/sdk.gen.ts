@@ -148,6 +148,27 @@ import type {
   SessionUpdateErrors,
   SessionUpdateResponses,
   SubtaskPartInput,
+  TaskmodeArchiveErrors,
+  TaskmodeArchiveResponses,
+  TaskmodeConfirmErrors,
+  TaskmodeConfirmResponses,
+  TaskmodeCreatePrErrors,
+  TaskmodeCreatePrResponses,
+  TaskmodeDiffResponses,
+  TaskmodeDisableResponses,
+  TaskmodeEnableErrors,
+  TaskmodeEnableResponses,
+  TaskmodeFoldersResponses,
+  TaskmodeGetResponses,
+  TaskmodeStartResponses,
+  TaskmodeStatsResponses,
+  TaskmodeStatusResponses,
+  TaskmodeStopResponses,
+  TaskmodeTaskGetErrors,
+  TaskmodeTaskGetResponses,
+  TaskmodeTasksDetailsResponses,
+  TaskmodeTaskUpdateErrors,
+  TaskmodeTaskUpdateResponses,
   TextPartInput,
   ToolIdsErrors,
   ToolIdsResponses,
@@ -171,6 +192,16 @@ import type {
   TuiShowToastResponses,
   TuiSubmitPromptResponses,
   VcsGetResponses,
+  WorkflowConfirmErrors,
+  WorkflowConfirmResponses,
+  WorkflowGetStatusErrors,
+  WorkflowGetStatusResponses,
+  WorkflowListResponses,
+  WorkflowStartErrors,
+  WorkflowStartResponses,
+  WorkflowStatusResponses,
+  WorkflowStopErrors,
+  WorkflowStopResponses,
   WorktreeCreateErrors,
   WorktreeCreateInput,
   WorktreeCreateResponses,
@@ -2776,6 +2807,555 @@ export class Mcp extends HeyApiClient {
   }
 }
 
+export class Task extends HeyApiClient {
+  /**
+   * Get task details
+   *
+   * Get details for a specific task
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      taskId: string
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "taskId" },
+            { in: "query", key: "directory" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<TaskmodeTaskGetResponses, TaskmodeTaskGetErrors, ThrowOnError>({
+      url: "/taskmode/task/{taskId}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update task
+   *
+   * Update a task's status or other properties
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      taskId: string
+      directory?: string
+      status?: "todo" | "in-progress" | "done" | "error" | "paused"
+      assignee?: string
+      title?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "taskId" },
+            { in: "query", key: "directory" },
+            { in: "body", key: "status" },
+            { in: "body", key: "assignee" },
+            { in: "body", key: "title" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<TaskmodeTaskUpdateResponses, TaskmodeTaskUpdateErrors, ThrowOnError>({
+      url: "/taskmode/task/{taskId}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Tasks extends HeyApiClient {
+  /**
+   * Get all task details
+   *
+   * Get the full details of all tasks from their task files
+   */
+  public details<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "directory" }] }])
+    return (options?.client ?? this.client).get<TaskmodeTasksDetailsResponses, unknown, ThrowOnError>({
+      url: "/taskmode/tasks/details",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Taskmode extends HeyApiClient {
+  /**
+   * Get task list content
+   *
+   * Get the raw markdown content of the task list file
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "directory" }] }])
+    return (options?.client ?? this.client).get<TaskmodeGetResponses, unknown, ThrowOnError>({
+      url: "/taskmode",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get task list status
+   *
+   * Get the parsed task list with statuses and counts
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "directory" }] }])
+    return (options?.client ?? this.client).get<TaskmodeStatusResponses, unknown, ThrowOnError>({
+      url: "/taskmode/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List task folders
+   *
+   * List all existing task folders in .opencode/tasks/
+   */
+  public folders<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "directory" }] }])
+    return (options?.client ?? this.client).get<TaskmodeFoldersResponses, unknown, ThrowOnError>({
+      url: "/taskmode/folders",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Enable task mode
+   *
+   * Enable task mode and optionally start the orchestrator
+   */
+  public enable<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      startOrchestrator?: boolean
+      parentSessionId?: string
+      folderName?: string
+      tddMode?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "body", key: "startOrchestrator" },
+            { in: "body", key: "parentSessionId" },
+            { in: "body", key: "folderName" },
+            { in: "body", key: "tddMode" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<TaskmodeEnableResponses, TaskmodeEnableErrors, ThrowOnError>({
+      url: "/taskmode/enable",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Disable task mode
+   *
+   * Disable task mode and stop the orchestrator
+   */
+  public disable<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "directory" }] }])
+    return (options?.client ?? this.client).post<TaskmodeDisableResponses, unknown, ThrowOnError>({
+      url: "/taskmode/disable",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Confirm generated plan
+   *
+   * Confirm the generated plan and start execution
+   */
+  public confirm<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "directory" }] }])
+    return (options?.client ?? this.client).post<TaskmodeConfirmResponses, TaskmodeConfirmErrors, ThrowOnError>({
+      url: "/taskmode/confirm",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Start orchestrator
+   *
+   * Start the task orchestrator
+   */
+  public start<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      parentSessionId?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "body", key: "parentSessionId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<TaskmodeStartResponses, unknown, ThrowOnError>({
+      url: "/taskmode/start",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Stop orchestrator
+   *
+   * Stop the task orchestrator
+   */
+  public stop<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "directory" }] }])
+    return (options?.client ?? this.client).post<TaskmodeStopResponses, unknown, ThrowOnError>({
+      url: "/taskmode/stop",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get completion stats
+   *
+   * Get completion statistics including time, tokens, cost, and modified files
+   */
+  public stats<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "directory" }] }])
+    return (options?.client ?? this.client).get<TaskmodeStatsResponses, unknown, ThrowOnError>({
+      url: "/taskmode/stats",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get unified diff
+   *
+   * Get a unified diff of all files modified during the task execution
+   */
+  public diff<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "directory" }] }])
+    return (options?.client ?? this.client).get<TaskmodeDiffResponses, unknown, ThrowOnError>({
+      url: "/taskmode/diff",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Archive task folder
+   *
+   * Move the task folder to the archived directory
+   */
+  public archive<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "directory" }] }])
+    return (options?.client ?? this.client).post<TaskmodeArchiveResponses, TaskmodeArchiveErrors, ThrowOnError>({
+      url: "/taskmode/archive",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Create pull request
+   *
+   * Create a pull request with all files modified during task execution
+   */
+  public createPr<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      title?: string
+      body?: string
+      branch?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "body", key: "title" },
+            { in: "body", key: "body" },
+            { in: "body", key: "branch" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<TaskmodeCreatePrResponses, TaskmodeCreatePrErrors, ThrowOnError>({
+      url: "/taskmode/create-pr",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  private _task?: Task
+  get task(): Task {
+    return (this._task ??= new Task({ client: this.client }))
+  }
+
+  private _tasks?: Tasks
+  get tasks(): Tasks {
+    return (this._tasks ??= new Tasks({ client: this.client }))
+  }
+}
+
+export class Workflow extends HeyApiClient {
+  /**
+   * List registered workflows
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "directory" }] }])
+    return (options?.client ?? this.client).get<WorkflowListResponses, unknown, ThrowOnError>({
+      url: "/workflow/list",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get active workflow status
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "directory" }] }])
+    return (options?.client ?? this.client).get<WorkflowStatusResponses, unknown, ThrowOnError>({
+      url: "/workflow/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get specific workflow status
+   */
+  public getStatus<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WorkflowGetStatusResponses, WorkflowGetStatusErrors, ThrowOnError>({
+      url: "/workflow/{id}/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Start a workflow
+   */
+  public start<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      parentSessionId?: string
+      userPrompt?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "body", key: "parentSessionId" },
+            { in: "body", key: "userPrompt" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WorkflowStartResponses, WorkflowStartErrors, ThrowOnError>({
+      url: "/workflow/{id}/start",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Stop a workflow
+   */
+  public stop<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WorkflowStopResponses, WorkflowStopErrors, ThrowOnError>({
+      url: "/workflow/{id}/stop",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Confirm workflow plan
+   */
+  public confirm<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WorkflowConfirmResponses, WorkflowConfirmErrors, ThrowOnError>({
+      url: "/workflow/{id}/confirm",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Control extends HeyApiClient {
   /**
    * Get next TUI request
@@ -3450,6 +4030,16 @@ export class OpencodeClient extends HeyApiClient {
   private _mcp?: Mcp
   get mcp(): Mcp {
     return (this._mcp ??= new Mcp({ client: this.client }))
+  }
+
+  private _taskmode?: Taskmode
+  get taskmode(): Taskmode {
+    return (this._taskmode ??= new Taskmode({ client: this.client }))
+  }
+
+  private _workflow?: Workflow
+  get workflow(): Workflow {
+    return (this._workflow ??= new Workflow({ client: this.client }))
   }
 
   private _tui?: Tui

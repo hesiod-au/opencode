@@ -703,9 +703,7 @@ export const SessionRoutes = lazy(() =>
             description: "Compaction templates",
             content: {
               "application/json": {
-                schema: resolver(
-                  z.record(z.string(), z.string()),
-                ),
+                schema: resolver(z.record(z.string(), z.string())),
               },
             },
           },
@@ -911,62 +909,48 @@ export const SessionRoutes = lazy(() =>
             messagesCount: body.messages?.length ?? 0,
           })
 
-          // Check if task mode is enabled - if so, route to task mode
+          // Check if a workflow is active - if so, route to workflow
           const config = await Config.get()
-          if (config.taskMode?.enabled) {
-            const { Orchestrator } = await import("../../task-mode/orchestrator")
-            const { TaskList } = await import("../../task-mode/task-list")
-            const { Instance } = await import("../../project/instance")
+          const { WorkflowRegistry } = await import("../../workflow/registry")
+          const activeWorkflow = await WorkflowRegistry.getActive()
 
-            // Check if all tasks are already complete - if so, treat as normal conversation
-            const listPath = config.taskMode?.listPath ?? ".opencode/tasks/default/task_list.md"
-            const paths = TaskList.resolvePaths(Instance.directory, listPath)
-            const taskList = await TaskList.read(paths.taskListPath)
+          if (activeWorkflow && !activeWorkflow.isRunning()) {
+            log.info("workflow active, starting", { workflowId: activeWorkflow.id, sessionID })
 
-            if (taskList && TaskList.isAllDone(taskList)) {
-              log.info("task mode enabled but all tasks complete, treating as normal conversation", { sessionID })
-              // Fall through to normal prompt processing
-            } else if (!Orchestrator.isRunning()) {
-              log.info("task mode enabled, starting orchestrator", { sessionID })
+            const userPrompt = body.parts
+              .filter((p): p is { type: "text"; text: string } => p.type === "text")
+              .map((p) => p.text)
+              .join("\n")
 
-              // Extract the user's prompt text from parts
-              const userPrompt = body.parts
-                .filter((p): p is { type: "text"; text: string } => p.type === "text")
-                .map((p) => p.text)
-                .join("\n")
+            await activeWorkflow.start({
+              parentSessionId: sessionID,
+              userPrompt,
+            })
 
-              // Start orchestrator with this session as parent and the user's prompt
-              await Orchestrator.start({
-                parentSessionId: sessionID,
-                userPrompt,
-              })
-
-              // Only return task mode message if orchestrator actually started
-              if (Orchestrator.isRunning()) {
-                // Return a message indicating task mode is engaging
-                const msg = {
-                  info: {
-                    id: "task-mode-active",
-                    sessionID,
-                    role: "assistant" as const,
-                    time: new Date(),
+            if (activeWorkflow.isRunning()) {
+              const msg = {
+                info: {
+                  id: "workflow-active",
+                  sessionID,
+                  role: "assistant" as const,
+                  time: new Date(),
+                },
+                parts: [
+                  {
+                    type: "text" as const,
+                    text: `Workflow "${activeWorkflow.name}" is active. Check progress in the UI.`,
                   },
-                  parts: [
-                    {
-                      type: "text" as const,
-                      text: "Task mode is active. The planning agent is analyzing your request and generating a task breakdown. Check the Tasks tab for progress.",
-                    },
-                  ],
-                }
-                stream.write(JSON.stringify(msg))
-                return
+                ],
               }
-              // If orchestrator didn't start (e.g., all tasks done), fall through to normal prompt
-              log.info("orchestrator did not start, falling through to normal prompt", { sessionID })
-            } else {
-              log.info("task mode enabled but orchestrator already running, passing through to normal prompt", { sessionID })
-              // Fall through to normal prompt processing
+              stream.write(JSON.stringify(msg))
+              return
             }
+            log.info("workflow did not start, falling through to normal prompt", { sessionID })
+          } else if (activeWorkflow?.isRunning()) {
+            log.info("workflow already running, passing through to normal prompt", {
+              workflowId: activeWorkflow.id,
+              sessionID,
+            })
           }
 
           const msg = await SessionPrompt.prompt({ ...body, sessionID })

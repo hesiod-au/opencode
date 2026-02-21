@@ -666,7 +666,11 @@ export function SessionContextTab(props: SessionContextTabProps) {
             data-variant="primary"
             onClick={handleSelectiveCompaction}
             disabled={!hasModel()}
-            title={hasModel() ? `Compact ${compactionProps.selectedPartIds.length} selected parts` : "Connect a provider first"}
+            title={
+              hasModel()
+                ? `Compact ${compactionProps.selectedPartIds.length} selected parts`
+                : "Connect a provider first"
+            }
           >
             <Icon name="collapse" size="small" />
             Compact Selected ({compactionProps.selectedPartIds.length})
@@ -747,12 +751,7 @@ export function SessionContextTab(props: SessionContextTabProps) {
     }
 
     const handleManageSnapshots = () => {
-      dialog.show(() => (
-        <DialogSnapshotsList
-          sessionID={sessionID()}
-          onLoad={loadSnapshot}
-        />
-      ))
+      dialog.show(() => <DialogSnapshotsList sessionID={sessionID()} onLoad={loadSnapshot} />)
     }
 
     const handleDeleteAllContext = () => {
@@ -821,7 +820,9 @@ export function SessionContextTab(props: SessionContextTabProps) {
           </button>
         </Show>
         <Show when={snapshotCount() > 0 && !loadedSnapshotCtx.isLoaded()}>
-          <span data-slot="state-control-count">{snapshotCount()} snapshot{snapshotCount() !== 1 ? "s" : ""}</span>
+          <span data-slot="state-control-count">
+            {snapshotCount()} snapshot{snapshotCount() !== 1 ? "s" : ""}
+          </span>
         </Show>
       </div>
     )
@@ -886,156 +887,152 @@ export function SessionContextTab(props: SessionContextTabProps) {
     >
       <PendingDeletionsProvider>
         <div class="px-6 pt-4 flex flex-col gap-10">
-        <div class="grid grid-cols-1 @[32rem]:grid-cols-2 gap-4">
-          <For each={stats()}>{(stat) => <Stat label={stat.label} value={stat.value} />}</For>
-        </div>
-
-        <Show when={breakdown().length > 0}>
-          <div class="flex flex-col gap-2">
-            <div class="text-12-regular text-text-weak">{language.t("context.breakdown.title")}</div>
-            <div class="h-2 w-full rounded-full bg-surface-base overflow-hidden flex">
-              <For each={breakdown()}>
-                {(segment) => (
-                  <div
-                    class="h-full"
-                    style={{
-                      width: `${segment.width}%`,
-                      "background-color": segment.color,
-                    }}
-                  />
-                )}
-              </For>
-            </div>
-            <div class="flex flex-wrap gap-x-3 gap-y-1">
-              <For each={breakdown()}>
-                {(segment) => (
-                  <div class="flex items-center gap-1 text-11-regular text-text-weak">
-                    <div class="size-2 rounded-sm" style={{ "background-color": segment.color }} />
-                    <div>{segment.label}</div>
-                    <div class="text-text-weaker">{segment.percent}</div>
-                  </div>
-                )}
-              </For>
-            </div>
-            <div class="hidden text-11-regular text-text-weaker">{language.t("context.breakdown.note")}</div>
+          <div class="grid grid-cols-1 @[32rem]:grid-cols-2 gap-4">
+            <For each={stats()}>{(stat) => <Stat label={stat.label} value={stat.value} />}</For>
           </div>
-        </Show>
 
-        <Show when={systemPrompt()}>
-          {(prompt) => (
+          <Show when={breakdown().length > 0}>
             <div class="flex flex-col gap-2">
-              <div class="text-12-regular text-text-weak">{language.t("context.systemPrompt.title")}</div>
-              <div class="border border-border-base rounded-md bg-surface-base px-3 py-2">
-                <Markdown text={prompt()} class="text-12-regular" />
+              <div class="text-12-regular text-text-weak">{language.t("context.breakdown.title")}</div>
+              <div class="h-2 w-full rounded-full bg-surface-base overflow-hidden flex">
+                <For each={breakdown()}>
+                  {(segment) => (
+                    <div
+                      class="h-full"
+                      style={{
+                        width: `${segment.width}%`,
+                        "background-color": segment.color,
+                      }}
+                    />
+                  )}
+                </For>
+              </div>
+              <div class="flex flex-wrap gap-x-3 gap-y-1">
+                <For each={breakdown()}>
+                  {(segment) => (
+                    <div class="flex items-center gap-1 text-11-regular text-text-weak">
+                      <div class="size-2 rounded-sm" style={{ "background-color": segment.color }} />
+                      <div>{segment.label}</div>
+                      <div class="text-text-weaker">{segment.percent}</div>
+                    </div>
+                  )}
+                </For>
+              </div>
+              <div class="hidden text-11-regular text-text-weaker">{language.t("context.breakdown.note")}</div>
+            </div>
+          </Show>
+
+          <Show when={systemPrompt()}>
+            {(prompt) => (
+              <div class="flex flex-col gap-2">
+                <div class="text-12-regular text-text-weak">{language.t("context.systemPrompt.title")}</div>
+                <div class="border border-border-base rounded-md bg-surface-base px-3 py-2">
+                  <Markdown text={prompt()} class="text-12-regular" />
+                </div>
+              </div>
+            )}
+          </Show>
+
+          {/* Context State Management */}
+          <Show when={sessionID()}>
+            <div class="flex flex-col gap-2">
+              <div class="text-12-regular text-text-weak">Context State</div>
+              <ContextStateControls />
+            </div>
+          </Show>
+
+          {/* Compaction Controls */}
+          <Show when={sessionID() && !loadedSnapshotCtx.isLoaded()}>
+            <div class="flex flex-col gap-2">
+              <div class="text-12-regular text-text-weak">Compaction</div>
+              <CompactionControls sessionID={sessionID()!} selectedPartIds={Array.from(compactSelection())} />
+            </div>
+          </Show>
+
+          <div class="flex flex-col gap-3">
+            <div class="flex items-center justify-between">
+              <div class="text-12-regular text-text-weak">Messages</div>
+              <div data-component="context-view-toggle">
+                <button
+                  data-slot="toggle-option"
+                  data-active={viewMode() === "chronological"}
+                  onClick={() => setViewMode("chronological")}
+                >
+                  Timeline
+                </button>
+                <button
+                  data-slot="toggle-option"
+                  data-active={viewMode() === "grouped"}
+                  onClick={() => setViewMode("grouped")}
+                >
+                  Grouped
+                </button>
+                <button data-slot="toggle-option" data-active={viewMode() === "raw"} onClick={() => setViewMode("raw")}>
+                  Raw
+                </button>
               </div>
             </div>
-          )}
-        </Show>
 
-        {/* Context State Management */}
-        <Show when={sessionID()}>
-          <div class="flex flex-col gap-2">
-            <div class="text-12-regular text-text-weak">Context State</div>
-            <ContextStateControls />
-          </div>
-        </Show>
-
-        {/* Compaction Controls */}
-        <Show when={sessionID() && !loadedSnapshotCtx.isLoaded()}>
-          <div class="flex flex-col gap-2">
-            <div class="text-12-regular text-text-weak">Compaction</div>
-            <CompactionControls sessionID={sessionID()!} selectedPartIds={Array.from(compactSelection())} />
-          </div>
-        </Show>
-
-        <div class="flex flex-col gap-3">
-          <div class="flex items-center justify-between">
-            <div class="text-12-regular text-text-weak">Messages</div>
-            <div data-component="context-view-toggle">
-              <button
-                data-slot="toggle-option"
-                data-active={viewMode() === "chronological"}
-                onClick={() => setViewMode("chronological")}
-              >
-                Timeline
-              </button>
-              <button
-                data-slot="toggle-option"
-                data-active={viewMode() === "grouped"}
-                onClick={() => setViewMode("grouped")}
-              >
-                Grouped
-              </button>
-              <button
-                data-slot="toggle-option"
-                data-active={viewMode() === "raw"}
-                onClick={() => setViewMode("raw")}
-              >
-                Raw
-              </button>
-            </div>
-          </div>
-
-          <div data-component="context-selection-controls">
-            <div data-slot="selection-summary">
-              <Show when={excluded().size > 0}>
-                <span data-slot="selection-count">{excluded().size} excluded</span>
-              </Show>
-              <Show when={hidden().size > 0}>
-                <span data-slot="selection-count">{hidden().size} hidden</span>
-              </Show>
-              <Show when={excluded().size === 0 && hidden().size === 0}>
-                <span data-slot="selection-hint">Click checkboxes to exclude items from context</span>
-              </Show>
-            </div>
-            <div data-slot="selection-actions">
-              <Show when={excluded().size > 0}>
-                <button data-slot="selection-action" onClick={includeAll}>
-                  <Icon name="check" size="small" />
-                  Include All
-                </button>
-              </Show>
-              <Show when={hidden().size > 0}>
-                <button data-slot="selection-action" onClick={showAll}>
+            <div data-component="context-selection-controls">
+              <div data-slot="selection-summary">
+                <Show when={excluded().size > 0}>
+                  <span data-slot="selection-count">{excluded().size} excluded</span>
+                </Show>
+                <Show when={hidden().size > 0}>
+                  <span data-slot="selection-count">{hidden().size} hidden</span>
+                </Show>
+                <Show when={excluded().size === 0 && hidden().size === 0}>
+                  <span data-slot="selection-hint">Click checkboxes to exclude items from context</span>
+                </Show>
+              </div>
+              <div data-slot="selection-actions">
+                <Show when={excluded().size > 0}>
+                  <button data-slot="selection-action" onClick={includeAll}>
+                    <Icon name="check" size="small" />
+                    Include All
+                  </button>
+                </Show>
+                <Show when={hidden().size > 0}>
+                  <button data-slot="selection-action" onClick={showAll}>
+                    <Icon name="eye" size="small" />
+                    Show All
+                  </button>
+                </Show>
+                <button
+                  data-slot="selection-action"
+                  data-active={showHidden()}
+                  onClick={() => setShowHidden(!showHidden())}
+                >
                   <Icon name="eye" size="small" />
-                  Show All
+                  {showHidden() ? "Hide Hidden" : "Show Hidden"}
                 </button>
-              </Show>
-              <button
-                data-slot="selection-action"
-                data-active={showHidden()}
-                onClick={() => setShowHidden(!showHidden())}
-              >
-                <Icon name="eye" size="small" />
-                {showHidden() ? "Hide Hidden" : "Show Hidden"}
-              </button>
+              </div>
             </div>
-          </div>
 
-          <Switch>
-            <Match when={viewMode() === "chronological"}>
-              <ContextMessageList
-                messages={getMessages}
-                getParts={getParts}
-                selection={selection}
-                onPartUpdated={() => sync.session.refresh(sessionID()!)}
-              />
-            </Match>
-            <Match when={viewMode() === "grouped"}>
-              <ContextGroupedView
-                messages={getMessages}
-                getParts={getParts}
-                selection={selection}
-                onPartUpdated={() => sync.session.refresh(sessionID()!)}
-              />
-            </Match>
-            <Match when={viewMode() === "raw"}>
-              <Accordion multiple>
-                <For each={getMessages()}>{(message) => <RawMessage message={message} />}</For>
-              </Accordion>
-            </Match>
-          </Switch>
-        </div>
+            <Switch>
+              <Match when={viewMode() === "chronological"}>
+                <ContextMessageList
+                  messages={getMessages}
+                  getParts={getParts}
+                  selection={selection}
+                  onPartUpdated={() => sync.session.refresh(sessionID()!)}
+                />
+              </Match>
+              <Match when={viewMode() === "grouped"}>
+                <ContextGroupedView
+                  messages={getMessages}
+                  getParts={getParts}
+                  selection={selection}
+                  onPartUpdated={() => sync.session.refresh(sessionID()!)}
+                />
+              </Match>
+              <Match when={viewMode() === "raw"}>
+                <Accordion multiple>
+                  <For each={getMessages()}>{(message) => <RawMessage message={message} />}</For>
+                </Accordion>
+              </Match>
+            </Switch>
+          </div>
         </div>
       </PendingDeletionsProvider>
     </div>

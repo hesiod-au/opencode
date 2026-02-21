@@ -292,9 +292,7 @@ export namespace SessionRelevanceCompaction {
 
     // Phase 2: rescue dropped user messages whose assistant
     // reply is kept (preserves turn pairing)
-    const msgById = new Map(
-      input.messages.map((m) => [m.info.id, m]),
-    )
+    const msgById = new Map(input.messages.map((m) => [m.info.id, m]))
     const substitutions = new Map<string, MessageV2.WithParts>()
 
     for (const msg of input.messages) {
@@ -305,18 +303,12 @@ export namespace SessionRelevanceCompaction {
       const parentMsg = msgById.get(parentID)
       if (!parentMsg) continue
 
-      const tokens = Token.estimate(
-        JSON.stringify(MessageV2.toModelMessages([parentMsg], input.llmInput.model)),
-      )
+      const tokens = Token.estimate(JSON.stringify(MessageV2.toModelMessages([parentMsg], input.llmInput.model)))
       if (tokens <= USER_MSG_SHORT_TOKENS) {
         kept.add(parentID)
         dropped.delete(parentID)
       } else {
-        const summarised = await summariseUserMessage(
-          parentMsg,
-          input.llmInput,
-          input.agent,
-        )
+        const summarised = await summariseUserMessage(parentMsg, input.llmInput, input.agent)
         substitutions.set(parentID, summarised)
         kept.add(parentID)
         dropped.delete(parentID)
@@ -324,9 +316,7 @@ export namespace SessionRelevanceCompaction {
     }
 
     // Phase 3: build result with substitutions
-    return input.messages
-      .filter((msg) => kept.has(msg.info.id))
-      .map((msg) => substitutions.get(msg.info.id) ?? msg)
+    return input.messages.filter((msg) => kept.has(msg.info.id)).map((msg) => substitutions.get(msg.info.id) ?? msg)
   }
 
   async function summariseUserMessage(
@@ -368,11 +358,7 @@ export namespace SessionRelevanceCompaction {
 
     return {
       info: msg.info,
-      parts: msg.parts.map((p) =>
-        p.type === "text"
-          ? { ...p, text: "[Summarised] " + summary }
-          : p,
-      ),
+      parts: msg.parts.map((p) => (p.type === "text" ? { ...p, text: "[Summarised] " + summary } : p)),
     }
   }
 }

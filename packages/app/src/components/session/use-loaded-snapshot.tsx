@@ -124,7 +124,14 @@ export function LoadedSnapshotProvider(props: ParentProps) {
     const hasAdditionalExclusions = additionalExclusions && additionalExclusions.size > 0
 
     // If no snapshot loaded and no changes and no force inclusions/exclusions and not forced, let server handle it
-    if (!snap && excl.size === 0 && eds.size === 0 && !hasForceInclusions && !hasAdditionalExclusions && !forceOverride) {
+    if (
+      !snap &&
+      excl.size === 0 &&
+      eds.size === 0 &&
+      !hasForceInclusions &&
+      !hasAdditionalExclusions &&
+      !forceOverride
+    ) {
       return undefined
     }
 
@@ -137,38 +144,37 @@ export function LoadedSnapshotProvider(props: ParentProps) {
     const nonSelectableTypes = new Set(["step-start", "snapshot", "patch", "agent"])
 
     // Apply exclusions and edits
-    return sourceMessages
-      .map((msg) => {
-        const msgParts = sourceParts[msg.id] ?? []
-        const processedParts = msgParts
-          .filter((part) => {
-            // If force included, always keep
-            if (forceInclusions?.has(part.id)) return true
-            // Filter out excluded (from both snapshot exclusions and additional exclusions)
-            if (excl.has(part.id)) return false
-            if (additionalExclusions?.has(part.id)) return false
-            return true
-          })
-          .map((part) => {
-            const edit = eds.get(part.id)
-            if (edit) {
-              return applyEdit(part, edit)
-            }
-            return part
-          })
+    return sourceMessages.map((msg) => {
+      const msgParts = sourceParts[msg.id] ?? []
+      const processedParts = msgParts
+        .filter((part) => {
+          // If force included, always keep
+          if (forceInclusions?.has(part.id)) return true
+          // Filter out excluded (from both snapshot exclusions and additional exclusions)
+          if (excl.has(part.id)) return false
+          if (additionalExclusions?.has(part.id)) return false
+          return true
+        })
+        .map((part) => {
+          const edit = eds.get(part.id)
+          if (edit) {
+            return applyEdit(part, edit)
+          }
+          return part
+        })
 
-        // Check if any content parts remain (non-metadata parts)
-        // If only non-selectable metadata parts remain, the message has no real content
-        const hasContentParts = processedParts.some((p) => !nonSelectableTypes.has(p.type))
-        // If no content parts remain, filter out metadata parts too (they're meaningless without content)
-        const finalParts = hasContentParts ? processedParts : []
+      // Check if any content parts remain (non-metadata parts)
+      // If only non-selectable metadata parts remain, the message has no real content
+      const hasContentParts = processedParts.some((p) => !nonSelectableTypes.has(p.type))
+      // If no content parts remain, filter out metadata parts too (they're meaningless without content)
+      const finalParts = hasContentParts ? processedParts : []
 
-        return {
-          info: msg,
-          parts: finalParts,
-        }
-      })
-      // Don't filter out messages with 0 parts - server needs them to mark their parts as excluded
+      return {
+        info: msg,
+        parts: finalParts,
+      }
+    })
+    // Don't filter out messages with 0 parts - server needs them to mark their parts as excluded
   }
 
   const value: LoadedSnapshotContextValue = {

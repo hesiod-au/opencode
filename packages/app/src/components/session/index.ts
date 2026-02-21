@@ -4,7 +4,13 @@ export { SessionTasksTab } from "./session-tasks-tab"
 export { SortableTab, FileVisual } from "./session-sortable-tab"
 export { SortableTerminalTab } from "./session-sortable-terminal-tab"
 export { NewSessionView } from "./session-new-view"
-export { useSnippets, substituteVariables, type Snippet, type SnippetsExport, type SubstituteContext } from "./use-snippets"
+export {
+  useSnippets,
+  substituteVariables,
+  type Snippet,
+  type SnippetsExport,
+  type SubstituteContext,
+} from "./use-snippets"
 export { DialogSnippetsPicker } from "./dialog-snippets-picker"
 export { DialogSnippetEditor } from "./dialog-snippet-editor"
 export { DialogSnippetsList } from "./dialog-snippets-list"
@@ -12,4 +18,9 @@ export { LoadedSnapshotProvider, useLoadedSnapshot } from "./use-loaded-snapshot
 export { type PartEdit } from "./use-context-snapshots"
 export { useArchive, type ArchivedItem, type ArchiveInput } from "./use-archive"
 export { DialogArchiveList } from "./dialog-archive-list"
-export { CanonicalContextProvider, useCanonicalContext, useCanonicalContextMaybe, type ItemState } from "./use-canonical-context"
+export {
+  CanonicalContextProvider,
+  useCanonicalContext,
+  useCanonicalContextMaybe,
+  type ItemState,
+} from "./use-canonical-context"

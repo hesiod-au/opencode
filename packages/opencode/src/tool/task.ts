@@ -142,7 +142,6 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         parts: promptParts,
       })
 
-
       const text = result.parts.findLast((x) => x.type === "text")?.text ?? ""
 
       const output = [

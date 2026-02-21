@@ -117,7 +117,9 @@ function TextPartItem(props: {
   const pendingDeletions = usePendingDeletions()
   const loadedSnapshotCtx = useLoadedSnapshot()
   // Check both local UI exclusion and backend excluded field
-  const isExcluded = () => props.part.excluded || (props.selection?.isForceExcluded?.(props.part.id) ?? props.selection?.excluded().has(props.part.id) ?? false)
+  const isExcluded = () =>
+    props.part.excluded ||
+    (props.selection?.isForceExcluded?.(props.part.id) ?? props.selection?.excluded().has(props.part.id) ?? false)
   const isForceIncluded = () => props.selection?.isForceIncluded?.(props.part.id) ?? false
   const isForceExcluded = () => props.selection?.isForceExcluded?.(props.part.id) ?? false
   const isHidden = () => props.selection?.hidden().has(props.part.id) ?? false
@@ -254,7 +256,9 @@ function TextPartItem(props: {
 function ReasoningPartItem(props: { part: ReasoningPart; selection?: SelectionState; onPartUpdated?: () => void }) {
   const sdk = useSDK()
   // Check both local UI exclusion and backend excluded field
-  const isExcluded = () => props.part.excluded || (props.selection?.isForceExcluded?.(props.part.id) ?? props.selection?.excluded().has(props.part.id) ?? false)
+  const isExcluded = () =>
+    props.part.excluded ||
+    (props.selection?.isForceExcluded?.(props.part.id) ?? props.selection?.excluded().has(props.part.id) ?? false)
   const isForceIncluded = () => props.selection?.isForceIncluded?.(props.part.id) ?? false
   const isForceExcluded = () => props.selection?.isForceExcluded?.(props.part.id) ?? false
   const isHidden = () => props.selection?.hidden().has(props.part.id) ?? false
@@ -368,9 +372,13 @@ function ToolPartItem(props: {
   const icon = () => getToolIcon(props.part.tool)
   const status = () => props.part.state.status
   const title = () =>
-    props.part.state.status === "completed" || props.part.state.status === "running" ? props.part.state.title : undefined
+    props.part.state.status === "completed" || props.part.state.status === "running"
+      ? props.part.state.title
+      : undefined
   // Check both local UI exclusion and backend excluded field
-  const isExcluded = () => props.part.excluded || (props.selection?.isForceExcluded?.(props.part.id) ?? props.selection?.excluded().has(props.part.id) ?? false)
+  const isExcluded = () =>
+    props.part.excluded ||
+    (props.selection?.isForceExcluded?.(props.part.id) ?? props.selection?.excluded().has(props.part.id) ?? false)
   const isForceIncluded = () => props.selection?.isForceIncluded?.(props.part.id) ?? false
   const isForceExcluded = () => props.selection?.isForceExcluded?.(props.part.id) ?? false
   const isHidden = () => props.selection?.hidden().has(props.part.id) ?? false
@@ -516,7 +524,9 @@ function FilePartItem(props: {
   const pendingDeletions = usePendingDeletions()
   const isImage = () => props.part.mime.startsWith("image/")
   // Check both local UI exclusion and backend excluded field
-  const isExcluded = () => props.part.excluded || (props.selection?.isForceExcluded?.(props.part.id) ?? props.selection?.excluded().has(props.part.id) ?? false)
+  const isExcluded = () =>
+    props.part.excluded ||
+    (props.selection?.isForceExcluded?.(props.part.id) ?? props.selection?.excluded().has(props.part.id) ?? false)
   const isForceIncluded = () => props.selection?.isForceIncluded?.(props.part.id) ?? false
   const isForceExcluded = () => props.selection?.isForceExcluded?.(props.part.id) ?? false
   const isHidden = () => props.selection?.hidden().has(props.part.id) ?? false
@@ -677,7 +687,11 @@ function PartItem(props: {
         />
       </Match>
       <Match when={props.part.type === "reasoning"}>
-        <ReasoningPartItem part={props.part as ReasoningPart} selection={props.selection} onPartUpdated={props.onPartUpdated} />
+        <ReasoningPartItem
+          part={props.part as ReasoningPart}
+          selection={props.selection}
+          onPartUpdated={props.onPartUpdated}
+        />
       </Match>
       <Match when={props.part.type === "tool"}>
         <ToolPartItem
@@ -758,7 +772,8 @@ export function ContextMessageItem(props: ContextMessageItemProps) {
   )
 
   // Helper to check if a part is excluded (either by backend or local UI)
-  const isPartExcluded = (p: Part) => p.excluded || (props.selection?.isForceExcluded?.(p.id) ?? props.selection?.excluded().has(p.id) ?? false)
+  const isPartExcluded = (p: Part) =>
+    p.excluded || (props.selection?.isForceExcluded?.(p.id) ?? props.selection?.excluded().has(p.id) ?? false)
 
   // Helper to check if a part is force included
   const isPartForceIncluded = (p: Part) => props.selection?.isForceIncluded?.(p.id) ?? false
@@ -941,11 +956,7 @@ export function ContextMessageItem(props: ContextMessageItemProps) {
               </Show>
             </div>
             <div data-slot="context-message-actions">
-              <button
-                data-slot="context-message-delete"
-                onClick={handleDeleteMessage}
-                title="Delete message"
-              >
+              <button data-slot="context-message-delete" onClick={handleDeleteMessage} title="Delete message">
                 <Icon name="close" size="small" />
               </button>
               <Show when={props.selection && selectableParts().length > 0}>

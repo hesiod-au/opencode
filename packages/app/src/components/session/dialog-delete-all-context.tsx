@@ -128,11 +128,7 @@ export function DialogDeleteAllContext(props: DialogDeleteAllContextProps) {
             <button data-slot="delete-all-cancel" onClick={handleCancel} disabled={deleting()}>
               Go Back
             </button>
-            <button
-              data-slot="delete-all-confirm"
-              onClick={handleDelete}
-              disabled={deleting() || !isConfirmValid()}
-            >
+            <button data-slot="delete-all-confirm" onClick={handleDelete} disabled={deleting() || !isConfirmValid()}>
               {deleting() ? "Deleting..." : "Delete All Context"}
             </button>
           </div>

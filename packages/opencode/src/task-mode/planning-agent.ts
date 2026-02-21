@@ -7,7 +7,6 @@ import { Agent } from "../agent/agent"
 import { TaskList } from "./task-list"
 import { TaskFile } from "./task-file"
 import { TaskModeEvent } from "./events"
-import { Config } from "../config/config"
 import { Instance } from "../project/instance"
 import { PlanningPrompts } from "./planning-prompts"
 import { ClaudeCli } from "./claude-cli"
@@ -66,13 +65,133 @@ export namespace PlanningAgent {
   }
 
   export async function generatePlan(options: PlanningOptions): Promise<PlanningResult> {
-    const config = await Config.get()
-    const enhancedTasks = config.taskMode?.enhancedTasks ?? true
+    const { paths, parentSessionId, context, userPrompt } = options
+    log.info("starting planning agent", { taskListPath: paths.taskListPath })
 
-    if (enhancedTasks) {
-      return generatePlanEnhanced(options)
+    const sessionId = await resolveSession(parentSessionId)
+    Bus.publish(TaskModeEvent.PlanningStarted, { sessionId })
+
+    try {
+      const agent = await Agent.get("build")
+      if (!agent) throw new Error("Build agent not found")
+
+      const conversationContext = await fetchConversationContext(parentSessionId)
+      const analysisPrompt = PlanningPrompts.buildAnalysisPrompt(context, conversationContext, userPrompt)
+      const model = agent.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
+
+      await logToParent(
+        parentSessionId,
+        "**Planning:** dispatching analysis to default model and Claude CLI in parallel...",
+      )
+
+      // Phase 1: Parallel dispatch for long-form analysis
+      const [defaultResult, cliResult] = await Promise.allSettled([
+        (async () => {
+          const messageID = Identifier.ascending("message")
+          const result = await SessionPrompt.prompt({
+            messageID,
+            sessionID: sessionId,
+            model: { modelID: model.modelID, providerID: model.providerID },
+            agent: agent.name,
+            variant: "max",
+            parts: [{ type: "text", text: analysisPrompt }],
+          })
+          return extractResponseText(result)
+        })(),
+        ClaudeCli.invokeClaude(analysisPrompt, Instance.directory, {
+          onProgress: (info) => {
+            logToParent(
+              parentSessionId,
+              `**Claude CLI:** ${info.totalChars} chars generated (${Math.round(info.elapsedMs / 1000)}s)...`,
+            )
+          },
+          progressIntervalMs: 15_000,
+        }),
+      ])
+
+      const defaultPlan = defaultResult.status === "fulfilled" ? defaultResult.value : null
+      const cliPlan = cliResult.status === "fulfilled" ? cliResult.value : null
+
+      if (defaultResult.status === "rejected") {
+        log.warn("default model analysis failed", { error: defaultResult.reason })
+      }
+      if (cliResult.status === "rejected") {
+        log.warn("claude CLI analysis failed", { error: cliResult.reason })
+      }
+
+      // Determine final plan table via assessment
+      let finalPlanText: string
+      if (defaultPlan && cliPlan) {
+        await logToParent(
+          parentSessionId,
+          "**Planning:** both analyses received, assessing and synthesizing task table...",
+        )
+
+        // Randomize which is A vs B to reduce positional bias
+        const swapped = Math.random() < 0.5
+        const planA = swapped ? cliPlan : defaultPlan
+        const planB = swapped ? defaultPlan : cliPlan
+        const sourceA = swapped ? "Claude CLI" : "Default Model"
+        const sourceB = swapped ? "Default Model" : "Claude CLI"
+
+        try {
+          const assessmentPrompt = PlanningPrompts.buildAssessmentPrompt(planA, planB, sourceA, sourceB)
+          const assessMessageID = Identifier.ascending("message")
+          const assessResult = await SessionPrompt.prompt({
+            messageID: assessMessageID,
+            sessionID: sessionId,
+            model: { modelID: model.modelID, providerID: model.providerID },
+            agent: agent.name,
+            variant: "max",
+            parts: [{ type: "text", text: assessmentPrompt }],
+          })
+          finalPlanText = extractResponseText(assessResult)
+          await logToParent(parentSessionId, "**Planning:** assessment complete, synthesized task table ready")
+        } catch (err: any) {
+          log.warn("assessment failed, falling back to default model analysis", { error: err })
+          await logToParent(
+            parentSessionId,
+            `**Planning:** assessment failed (${err.message}), using default model analysis`,
+          )
+          finalPlanText = defaultPlan
+        }
+      } else if (defaultPlan) {
+        await logToParent(parentSessionId, "**Planning:** Claude CLI unavailable, using default model analysis")
+        finalPlanText = defaultPlan
+      } else if (cliPlan) {
+        await logToParent(parentSessionId, "**Planning:** default model failed, using Claude CLI analysis")
+        finalPlanText = cliPlan
+      } else {
+        throw new Error("Both default model and Claude CLI failed to generate analyses")
+      }
+
+      // Parse the plan table from the final text
+      const planTableOnly = parsePlanFromResponse(finalPlanText)
+      if (planTableOnly.tasks.length === 0) throw new Error("Planning did not generate any tasks")
+
+      // Write task list and task files immediately so the orchestrator can proceed
+      const result = await finalizePlan(planTableOnly, paths, sessionId, parentSessionId)
+
+      // Phase 2: Enrich task descriptions before returning
+      await enrichTaskDescriptions({
+        plan: planTableOnly,
+        paths,
+        sessionId,
+        parentSessionId,
+        finalPlanText,
+        context,
+        conversationContext,
+        userPrompt,
+        agent,
+        model,
+      })
+
+      return result
+    } catch (err: any) {
+      log.error("planning failed", { error: err })
+      await logToParent(parentSessionId, `**Planning failed:** ${err.message || String(err)}`)
+      return { success: false, sessionId, taskCount: 0, error: err.message || String(err) }
     }
-    return generatePlanClassic(options)
   }
 
   async function resolveSession(parentSessionId?: string): Promise<string> {
@@ -143,8 +262,7 @@ export namespace PlanningAgent {
       if (session && Session.isDefaultTitle(session.title)) {
         const shorten = (v: string) => (v.length > 100 ? v.substring(0, 97) + "..." : v)
         const planTitle =
-          plan.description?.trim() ||
-          (plan.title && plan.title !== "Task List" ? plan.title.trim() : undefined)
+          plan.description?.trim() || (plan.title && plan.title !== "Task List" ? plan.title.trim() : undefined)
         if (planTitle) {
           await Session.update(parentSessionId, (draft) => {
             draft.title = shorten(planTitle)
@@ -170,167 +288,12 @@ export namespace PlanningAgent {
     log.info("planning completed", { sessionId, taskCount: plan.tasks.length })
 
     const taskSummary = plan.tasks.map((t) => `- **${t.id}**: ${t.title}`).join("\n")
-    await logToParent(parentSessionId, `**Planning completed** ✓\n\nGenerated ${plan.tasks.length} tasks:\n\n${taskSummary}`)
+    await logToParent(
+      parentSessionId,
+      `**Planning completed** ✓\n\nGenerated ${plan.tasks.length} tasks:\n\n${taskSummary}`,
+    )
 
     return { success: true, sessionId, taskCount: plan.tasks.length }
-  }
-
-  async function generatePlanClassic(options: PlanningOptions): Promise<PlanningResult> {
-    const { paths, parentSessionId, context, userPrompt } = options
-    log.info("starting classic planning agent", { taskListPath: paths.taskListPath })
-
-    const sessionId = await resolveSession(parentSessionId)
-    Bus.publish(TaskModeEvent.PlanningStarted, { sessionId })
-
-    try {
-      const agent = await Agent.get("build")
-      if (!agent) throw new Error("Build agent not found")
-
-      const conversationContext = await fetchConversationContext(parentSessionId)
-      const messageID = Identifier.ascending("message")
-      const prompt = PlanningPrompts.buildCombinedPlanningPrompt(context, conversationContext, userPrompt)
-      const model = agent.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
-
-      const result = await SessionPrompt.prompt({
-        messageID,
-        sessionID: sessionId,
-        model: { modelID: model.modelID, providerID: model.providerID },
-        agent: agent.name,
-        variant: "max",
-        parts: [{ type: "text", text: prompt }],
-      })
-
-      const responseText = extractResponseText(result)
-      const plan = parsePlanFromResponse(responseText)
-      if (plan.tasks.length === 0) throw new Error("Planning agent did not generate any tasks")
-
-      return finalizePlan(plan, paths, sessionId, parentSessionId)
-    } catch (err: any) {
-      log.error("planning failed", { error: err })
-      await logToParent(parentSessionId, `**Planning failed:** ${err.message || String(err)}`)
-      return { success: false, sessionId, taskCount: 0, error: err.message || String(err) }
-    }
-  }
-
-  async function generatePlanEnhanced(options: PlanningOptions): Promise<PlanningResult> {
-    const { paths, parentSessionId, context, userPrompt } = options
-    log.info("starting enhanced planning agent", { taskListPath: paths.taskListPath })
-
-    const sessionId = await resolveSession(parentSessionId)
-    Bus.publish(TaskModeEvent.PlanningStarted, { sessionId })
-
-    try {
-      const agent = await Agent.get("build")
-      if (!agent) throw new Error("Build agent not found")
-
-      const conversationContext = await fetchConversationContext(parentSessionId)
-      const planOnlyPrompt = PlanningPrompts.buildPlanOnlyPrompt(context, conversationContext, userPrompt)
-      const model = agent.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
-
-      await logToParent(parentSessionId, "**Enhanced planning:** dispatching plan to default model and Claude CLI in parallel...")
-
-      // Phase 1: Parallel dispatch for plan table
-      const [defaultResult, cliResult] = await Promise.allSettled([
-        (async () => {
-          const messageID = Identifier.ascending("message")
-          const result = await SessionPrompt.prompt({
-            messageID,
-            sessionID: sessionId,
-            model: { modelID: model.modelID, providerID: model.providerID },
-            agent: agent.name,
-            variant: "max",
-            parts: [{ type: "text", text: planOnlyPrompt }],
-          })
-          return extractResponseText(result)
-        })(),
-        ClaudeCli.invokeClaude(planOnlyPrompt, Instance.directory, {
-          onProgress: (info) => {
-            logToParent(
-              parentSessionId,
-              `**Claude CLI:** ${info.totalChars} chars generated (${Math.round(info.elapsedMs / 1000)}s)...`,
-            )
-          },
-          progressIntervalMs: 15_000,
-        }),
-      ])
-
-      const defaultPlan = defaultResult.status === "fulfilled" ? defaultResult.value : null
-      const cliPlan = cliResult.status === "fulfilled" ? cliResult.value : null
-
-      if (defaultResult.status === "rejected") {
-        log.warn("default model plan failed", { error: defaultResult.reason })
-      }
-      if (cliResult.status === "rejected") {
-        log.warn("claude CLI plan failed", { error: cliResult.reason })
-      }
-
-      // Determine final plan table
-      let finalPlanText: string
-      if (defaultPlan && cliPlan) {
-        await logToParent(parentSessionId, "**Enhanced planning:** both plans received, assessing and synthesizing...")
-
-        // Randomize which is A vs B to reduce positional bias
-        const swapped = Math.random() < 0.5
-        const planA = swapped ? cliPlan : defaultPlan
-        const planB = swapped ? defaultPlan : cliPlan
-        const sourceA = swapped ? "Claude CLI" : "Default Model"
-        const sourceB = swapped ? "Default Model" : "Claude CLI"
-
-        try {
-          const assessmentPrompt = PlanningPrompts.buildAssessmentPrompt(planA, planB, sourceA, sourceB)
-          const assessMessageID = Identifier.ascending("message")
-          const assessResult = await SessionPrompt.prompt({
-            messageID: assessMessageID,
-            sessionID: sessionId,
-            model: { modelID: model.modelID, providerID: model.providerID },
-            agent: agent.name,
-            variant: "max",
-            parts: [{ type: "text", text: assessmentPrompt }],
-          })
-          finalPlanText = extractResponseText(assessResult)
-          await logToParent(parentSessionId, "**Enhanced planning:** assessment complete, synthesized plan ready")
-        } catch (err: any) {
-          log.warn("assessment failed, falling back to default model plan", { error: err })
-          await logToParent(parentSessionId, `**Enhanced planning:** assessment failed (${err.message}), using default model plan`)
-          finalPlanText = defaultPlan
-        }
-      } else if (defaultPlan) {
-        await logToParent(parentSessionId, "**Enhanced planning:** Claude CLI unavailable, using default model plan")
-        finalPlanText = defaultPlan
-      } else if (cliPlan) {
-        await logToParent(parentSessionId, "**Enhanced planning:** default model failed, using Claude CLI plan")
-        finalPlanText = cliPlan
-      } else {
-        throw new Error("Both default model and Claude CLI failed to generate plans")
-      }
-
-      // Parse the plan table from the final text
-      const planTableOnly = parsePlanFromResponse(finalPlanText)
-      if (planTableOnly.tasks.length === 0) throw new Error("Enhanced planning did not generate any tasks")
-
-      // Write task list and task files immediately so the orchestrator can proceed
-      const result = await finalizePlan(planTableOnly, paths, sessionId, parentSessionId)
-
-      // Phase 2: Enrich task descriptions before returning
-      await enrichTaskDescriptions({
-        plan: planTableOnly,
-        paths,
-        sessionId,
-        parentSessionId,
-        finalPlanText,
-        context,
-        conversationContext,
-        userPrompt,
-        agent,
-        model,
-      })
-
-      return result
-    } catch (err: any) {
-      log.error("enhanced planning failed", { error: err })
-      await logToParent(parentSessionId, `**Planning failed:** ${err.message || String(err)}`)
-      return { success: false, sessionId, taskCount: 0, error: err.message || String(err) }
-    }
   }
 
   async function enrichTaskDescriptions(opts: {
@@ -345,10 +308,21 @@ export namespace PlanningAgent {
     agent: { name: string }
     model: { providerID: string; modelID: string }
   }): Promise<void> {
-    const { plan, paths, sessionId, parentSessionId, finalPlanText, context, conversationContext, userPrompt, agent, model } = opts
+    const {
+      plan,
+      paths,
+      sessionId,
+      parentSessionId,
+      finalPlanText,
+      context,
+      conversationContext,
+      userPrompt,
+      agent,
+      model,
+    } = opts
 
     try {
-      await logToParent(parentSessionId, "**Enhanced planning:** writing detailed task descriptions...")
+      await logToParent(parentSessionId, "**Planning:** writing detailed task descriptions...")
 
       const taskWritingPrompt = PlanningPrompts.buildTaskWritingPrompt(
         finalPlanText,
@@ -382,7 +356,7 @@ export namespace PlanningAgent {
         })
         await logToParent(
           parentSessionId,
-          `**Enhanced planning:** ${coverage.missingIds.length} of ${coverage.total} tasks missing descriptions, retrying (attempt ${attempt + 1}/${maxRetries})...`,
+          `**Planning:** ${coverage.missingIds.length} of ${coverage.total} tasks missing descriptions, retrying (attempt ${attempt + 1}/${maxRetries})...`,
         )
 
         const continuationPrompt = PlanningPrompts.buildContinuationPrompt(
@@ -433,11 +407,17 @@ export namespace PlanningAgent {
 
       if (updated > 0) {
         log.info("enriched task descriptions", { updated, total: plan.tasks.length })
-        await logToParent(parentSessionId, `**Enhanced planning:** enriched ${updated} of ${plan.tasks.length} task descriptions`)
+        await logToParent(
+          parentSessionId,
+          `**Planning:** enriched ${updated} of ${plan.tasks.length} task descriptions`,
+        )
       }
     } catch (err: any) {
       log.error("description enrichment failed", { error: err })
-      await logToParent(parentSessionId, `**Warning:** task description enrichment failed: ${err.message || String(err)}`)
+      await logToParent(
+        parentSessionId,
+        `**Warning:** task description enrichment failed: ${err.message || String(err)}`,
+      )
     }
   }
 

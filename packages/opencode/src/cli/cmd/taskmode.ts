@@ -22,7 +22,8 @@ async function api<T>(fetchFn: typeof fetch, method: string, path: string, body?
 export const TaskModeCommand = cmd({
   command: "taskmode",
   describe: "enable/disable task mode",
-  builder: (yargs: Argv) => yargs.command(TaskModeEnableCommand).command(TaskModeDisableCommand).command(TaskModeStatusCommand).demandCommand(),
+  builder: (yargs: Argv) =>
+    yargs.command(TaskModeEnableCommand).command(TaskModeDisableCommand).command(TaskModeStatusCommand).demandCommand(),
   async handler() {},
 })
 
@@ -105,7 +106,14 @@ export const TaskModeStatusCommand = cmd({
         orchestratorRunning: boolean
         parentSessionId?: string
         activeTasks: number
-        counts?: { total: number; pending: number; inProgress: number; completed: number; error: number; paused: number }
+        counts?: {
+          total: number
+          pending: number
+          inProgress: number
+          completed: number
+          error: number
+          paused: number
+        }
       }>(fetchFn, "GET", "/taskmode/status")
 
       const counts = status.counts

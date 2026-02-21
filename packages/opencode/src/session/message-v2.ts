@@ -715,9 +715,7 @@ export namespace MessageV2 {
 
       // Check for compaction user message
       const isCompactionUserMsg =
-        msg.info.role === "user" &&
-        completed.has(msg.info.id) &&
-        msg.parts.some((part) => part.type === "compaction")
+        msg.info.role === "user" && completed.has(msg.info.id) && msg.parts.some((part) => part.type === "compaction")
 
       if (isCompactionUserMsg) {
         log.info("filterCompacted: found compaction break point", {

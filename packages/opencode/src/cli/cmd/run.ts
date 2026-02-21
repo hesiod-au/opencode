@@ -295,6 +295,18 @@ export const RunCommand = cmd({
         type: "string",
         describe: "task folder name under .opencode/tasks (selects its task_list.md) when using --task-mode",
       })
+      .option("workflow", {
+        type: "string",
+        describe: "workflow to activate (e.g., task, pr-review)",
+      })
+      .option("pr-review", {
+        type: "boolean",
+        describe: "shorthand for --workflow pr-review",
+      })
+      .option("pr", {
+        type: "number",
+        describe: "PR number for pr-review workflow",
+      })
       .option("thinking", {
         type: "boolean",
         describe: "show thinking blocks",
@@ -346,6 +358,10 @@ export const RunCommand = cmd({
       UI.error("--fork requires --continue or --session")
       process.exit(1)
     }
+
+    // Resolve workflow ID from flags
+    const workflowId = args.prReview ? "pr-review" : (args.workflow ?? (args.taskMode ? "task" : undefined))
+    const isWorkflowRun = !!workflowId
 
     const rules: PermissionNext.Ruleset = [
       {
@@ -514,7 +530,7 @@ export const RunCommand = cmd({
             UI.error(err)
           }
 
-          // Task mode event handling
+          // Task mode event handling (backward compat)
           if (args.taskMode) {
             const ev = event as { type: string; properties: Record<string, any> }
 
@@ -527,7 +543,10 @@ export const RunCommand = cmd({
             if (ev.type === "taskmode.task.started") {
               if (!emit("taskmode.task.started", ev.properties)) {
                 UI.println(
-                  UI.Style.TEXT_INFO_BOLD + "•  " + UI.Style.TEXT_NORMAL + `Task ${ev.properties.taskId}: ${ev.properties.title}`,
+                  UI.Style.TEXT_INFO_BOLD +
+                    "•  " +
+                    UI.Style.TEXT_NORMAL +
+                    `Task ${ev.properties.taskId}: ${ev.properties.title}`,
                 )
               }
             }
@@ -535,7 +554,10 @@ export const RunCommand = cmd({
             if (ev.type === "taskmode.task.completed") {
               if (!emit("taskmode.task.completed", ev.properties)) {
                 UI.println(
-                  UI.Style.TEXT_SUCCESS_BOLD + "✓  " + UI.Style.TEXT_NORMAL + `Task ${ev.properties.taskId}: ${ev.properties.title}`,
+                  UI.Style.TEXT_SUCCESS_BOLD +
+                    "✓  " +
+                    UI.Style.TEXT_NORMAL +
+                    `Task ${ev.properties.taskId}: ${ev.properties.title}`,
                 )
               }
             }
@@ -543,7 +565,10 @@ export const RunCommand = cmd({
             if (ev.type === "taskmode.task.error") {
               if (!emit("taskmode.task.error", ev.properties)) {
                 UI.println(
-                  UI.Style.TEXT_DANGER_BOLD + "✗  " + UI.Style.TEXT_NORMAL + `Task ${ev.properties.taskId}: ${ev.properties.error}`,
+                  UI.Style.TEXT_DANGER_BOLD +
+                    "✗  " +
+                    UI.Style.TEXT_NORMAL +
+                    `Task ${ev.properties.taskId}: ${ev.properties.error}`,
                 )
               }
             }
@@ -574,12 +599,41 @@ export const RunCommand = cmd({
             }
           }
 
+          // Generic workflow event handling
+          if (isWorkflowRun && workflowId !== "task") {
+            const ev = event as { type: string; properties: Record<string, any> }
+
+            if (ev.type === "workflow.phase_changed" && ev.properties.workflowId === workflowId) {
+              if (!emit("workflow.phase_changed", ev.properties)) {
+                const detail = ev.properties.detail ? ` — ${ev.properties.detail}` : ""
+                UI.println(
+                  UI.Style.TEXT_INFO_BOLD + "~  " + UI.Style.TEXT_NORMAL + `Phase: ${ev.properties.phase}${detail}`,
+                )
+              }
+            }
+
+            if (ev.type === "workflow.progress" && ev.properties.workflowId === workflowId) {
+              if (!emit("workflow.progress", ev.properties)) {
+                UI.println(UI.Style.TEXT_DIM + "   " + ev.properties.message)
+              }
+            }
+
+            if (ev.type === "workflow.stopped" && ev.properties.workflowId === workflowId) {
+              if (!emit("workflow.stopped", ev.properties)) {
+                UI.println(
+                  UI.Style.TEXT_INFO_BOLD + "~  " + UI.Style.TEXT_NORMAL + `Workflow stopped: ${ev.properties.reason}`,
+                )
+              }
+              break
+            }
+          }
+
           if (
             event.type === "session.status" &&
             event.properties.sessionID === sessionID &&
             event.properties.status.type === "idle"
           ) {
-            if (!args.taskMode) break
+            if (!args.taskMode && !isWorkflowRun) break
           }
 
           if (event.type === "permission.asked") {
@@ -650,6 +704,26 @@ export const RunCommand = cmd({
         }
       }
 
+      // Start a non-task workflow via generic workflow route
+      if (isWorkflowRun && workflowId !== "task" && rawFetch) {
+        const baseUrl = args.attach || "http://opencode.internal"
+        const url = new URL(`/workflow/${workflowId}/start`, baseUrl)
+        const startRes = await rawFetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            parentSessionId: sessionID,
+            userPrompt: message,
+          }),
+        })
+
+        if (!startRes.ok) {
+          const text = await startRes.text().catch(() => "")
+          UI.error(`Failed to start workflow "${workflowId}": ${startRes.status} ${text || startRes.statusText}`)
+          process.exit(1)
+        }
+      }
+
       const loopPromise = loop().catch((e) => {
         console.error(e)
         process.exit(1)
@@ -675,7 +749,7 @@ export const RunCommand = cmd({
         })
       }
 
-      if (args.taskMode) {
+      if (args.taskMode || isWorkflowRun) {
         await loopPromise
       }
     }

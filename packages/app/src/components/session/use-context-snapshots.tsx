@@ -83,7 +83,7 @@ export function useContextSnapshots() {
 
   const [store, setStore, , ready] = persisted<SnapshotsStore>(
     Persist.workspace(directory(), "context-snapshots"),
-    createStore<SnapshotsStore>({ snapshots: [] })
+    createStore<SnapshotsStore>({ snapshots: [] }),
   )
 
   const snapshots = createMemo(() => {
@@ -158,9 +158,7 @@ export function useContextSnapshots() {
   }
 
   const renameSnapshot = (snapshotId: string, newName: string) => {
-    setStore("snapshots", (prev) =>
-      prev.map((s) => (s.id === snapshotId ? { ...s, name: newName } : s))
-    )
+    setStore("snapshots", (prev) => prev.map((s) => (s.id === snapshotId ? { ...s, name: newName } : s)))
   }
 
   const getSnapshot = (snapshotId: string): ContextSnapshot | undefined => {

@@ -118,7 +118,11 @@ export namespace Orchestrator {
       const partID = Identifier.ascending("part")
       const model = await resolveModel()
 
-      log.info("logAction: creating message", { messageID, parentSessionId: state.parentSessionId, text: text.slice(0, 50) })
+      log.info("logAction: creating message", {
+        messageID,
+        parentSessionId: state.parentSessionId,
+        text: text.slice(0, 50),
+      })
 
       await Session.updateMessage({
         id: messageID,
@@ -243,9 +247,8 @@ export namespace Orchestrator {
 
         if (taskFile?.description) {
           // Truncate long descriptions
-          const desc = taskFile.description.length > 500
-            ? taskFile.description.slice(0, 500) + "..."
-            : taskFile.description
+          const desc =
+            taskFile.description.length > 500 ? taskFile.description.slice(0, 500) + "..." : taskFile.description
           summary += `${desc}\n\n`
         }
 
@@ -297,7 +300,11 @@ ${taskSummaries.join("\n---\n\n")}
 
 ## Modified Files
 
-${Array.from(stats.modifiedFiles).map(f => `- \`${f}\``).join("\n") || "No files modified"}
+${
+  Array.from(stats.modifiedFiles)
+    .map((f) => `- \`${f}\``)
+    .join("\n") || "No files modified"
+}
 `
 
       // Write the report as a message in the report session
@@ -347,7 +354,9 @@ ${Array.from(stats.modifiedFiles).map(f => `- \`${f}\``).join("\n") || "No files
       const testWarning = testInfo?.testsCouldNotRun
         ? `\n\n⚠️ **Tests could not be run automatically.** Please run tests manually.`
         : ""
-      await logAction(`**Final Report created** - see child session for details\n\n**Summary:** ${counts.completed}/${counts.total} tasks completed, ${totalTestsPassed} tests passed${testWarning}`)
+      await logAction(
+        `**Final Report created** - see child session for details\n\n**Summary:** ${counts.completed}/${counts.total} tasks completed, ${totalTestsPassed} tests passed${testWarning}`,
+      )
 
       return reportSession.id
     } catch (err) {
@@ -405,11 +414,21 @@ ${Array.from(stats.modifiedFiles).map(f => `- \`${f}\``).join("\n") || "No files
       log.info("using test framework from task list", { testFramework, command })
     } else {
       // Fallback: try to detect test runner from project files
-      const hasBunLock = await Bun.file(`${Instance.directory}/bun.lock`).exists().catch(() => false)
-      const hasPackageJson = await Bun.file(`${Instance.directory}/package.json`).exists().catch(() => false)
-      const hasPytest = await Bun.file(`${Instance.directory}/pytest.ini`).exists().catch(() => false)
-      const hasPyprojectToml = await Bun.file(`${Instance.directory}/pyproject.toml`).exists().catch(() => false)
-      const hasGoMod = await Bun.file(`${Instance.directory}/go.mod`).exists().catch(() => false)
+      const hasBunLock = await Bun.file(`${Instance.directory}/bun.lock`)
+        .exists()
+        .catch(() => false)
+      const hasPackageJson = await Bun.file(`${Instance.directory}/package.json`)
+        .exists()
+        .catch(() => false)
+      const hasPytest = await Bun.file(`${Instance.directory}/pytest.ini`)
+        .exists()
+        .catch(() => false)
+      const hasPyprojectToml = await Bun.file(`${Instance.directory}/pyproject.toml`)
+        .exists()
+        .catch(() => false)
+      const hasGoMod = await Bun.file(`${Instance.directory}/go.mod`)
+        .exists()
+        .catch(() => false)
 
       if (hasPytest || hasPyprojectToml) {
         // pytest -k uses "or" keyword, not "|"
@@ -426,7 +445,8 @@ ${Array.from(stats.modifiedFiles).map(f => `- \`${f}\``).join("\n") || "No files
         log.warn("could not determine test runner", { e2eTestName })
         return {
           success: false,
-          output: "Could not determine how to run tests. No test framework info was provided and no recognized test configuration files were found.",
+          output:
+            "Could not determine how to run tests. No test framework info was provided and no recognized test configuration files were found.",
           couldNotRun: true,
         }
       }
@@ -572,7 +592,11 @@ The E2E test validates that all components work together correctly. Focus on int
     const config = await Config.get()
     const maxE2ERetries = config.taskMode?.maxTestRetries ?? 10
 
-    log.info("starting E2E test loop", { e2eTestName, maxRetries: maxE2ERetries, testFramework: taskList.testFramework })
+    log.info("starting E2E test loop", {
+      e2eTestName,
+      maxRetries: maxE2ERetries,
+      testFramework: taskList.testFramework,
+    })
     await logAction(`**Running E2E test:** ${e2eTestName}`)
 
     for (let attempt = 1; attempt <= maxE2ERetries; attempt++) {
@@ -581,7 +605,9 @@ The E2E test validates that all components work together correctly. Focus on int
       // If we couldn't run the tests at all (not a test failure), give up gracefully
       if (testResult.couldNotRun) {
         log.warn("could not run E2E tests, skipping test phase", { output: testResult.output })
-        await logAction(`**Could not run E2E tests:** ${testResult.output}\n\nSkipping E2E test phase. Please run tests manually.`)
+        await logAction(
+          `**Could not run E2E tests:** ${testResult.output}\n\nSkipping E2E test phase. Please run tests manually.`,
+        )
         return {
           success: true, // Don't fail the overall task
           couldNotRun: true,
@@ -600,13 +626,7 @@ The E2E test validates that all components work together correctly. Focus on int
 
       if (attempt < maxE2ERetries) {
         // Launch fix agent
-        const fixResult = await runE2EFixAgent(
-          e2eTestName,
-          testResult.output,
-          taskList,
-          paths,
-          parentSessionId,
-        )
+        const fixResult = await runE2EFixAgent(e2eTestName, testResult.output, taskList, paths, parentSessionId)
 
         if (!fixResult.success) {
           log.warn("E2E fix agent failed", { attempt })
@@ -693,11 +713,18 @@ The E2E test validates that all components work together correctly. Focus on int
       return
     }
 
-    const paths = TaskList.resolvePaths(Instance.directory, taskModeConfig.listPath ?? ".opencode/tasks/default/task_list.md")
+    const paths = TaskList.resolvePaths(
+      Instance.directory,
+      taskModeConfig.listPath ?? ".opencode/tasks/default/task_list.md",
+    )
 
     // Use parent session for logging (user's main session)
     const parentSessionId = options?.parentSessionId
-    log.info("orchestrator start options", { parentSessionId, hasParent: !!parentSessionId, userPrompt: options?.userPrompt?.slice(0, 50) })
+    log.info("orchestrator start options", {
+      parentSessionId,
+      hasParent: !!parentSessionId,
+      userPrompt: options?.userPrompt?.slice(0, 50),
+    })
     if (parentSessionId) {
       log.info("orchestrator will log to parent session", { parentSessionId })
     } else {
@@ -1101,9 +1128,7 @@ The E2E test validates that all components work together correctly. Focus on int
         }
 
         // Detect orphaned tasks (in-progress but not actively tracked)
-        const orphanedTasks = taskList.tasks.filter(
-          (t) => t.status === "in-progress" && !state!.activeTasks.has(t.id),
-        )
+        const orphanedTasks = taskList.tasks.filter((t) => t.status === "in-progress" && !state!.activeTasks.has(t.id))
         if (orphanedTasks.length > 0) {
           log.warn("detected orphaned tasks", { orphanedIds: orphanedTasks.map((t) => t.id) })
           await logAction(
@@ -1368,9 +1393,7 @@ The E2E test validates that all components work together correctly. Focus on int
   } | null> {
     // First check runtime state
     if (state) {
-      const durationMs = state.completedAt
-        ? state.completedAt - state.startedAt
-        : Date.now() - state.startedAt
+      const durationMs = state.completedAt ? state.completedAt - state.startedAt : Date.now() - state.startedAt
       return {
         startedAt: state.startedAt,
         completedAt: state.completedAt,
@@ -1386,9 +1409,7 @@ The E2E test validates that all components work together correctly. Focus on int
     const persisted = await loadState(paths)
     if (!persisted?.stats) return null
 
-    const durationMs = persisted.completedAt
-      ? persisted.completedAt - persisted.startedAt
-      : undefined
+    const durationMs = persisted.completedAt ? persisted.completedAt - persisted.startedAt : undefined
 
     return {
       startedAt: persisted.startedAt,

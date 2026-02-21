@@ -97,7 +97,13 @@ export namespace TaskList {
       }
 
       // Parse description (text before table)
-      if (!inTable && !trimmed.startsWith("|") && !trimmed.startsWith("#") && trimmed.length > 0 && !result.description) {
+      if (
+        !inTable &&
+        !trimmed.startsWith("|") &&
+        !trimmed.startsWith("#") &&
+        trimmed.length > 0 &&
+        !result.description
+      ) {
         result.description = trimmed
         continue
       }

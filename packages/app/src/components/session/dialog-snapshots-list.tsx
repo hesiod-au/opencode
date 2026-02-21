@@ -106,7 +106,11 @@ export function DialogSnapshotsList(props: DialogSnapshotsListProps) {
 
   // Default open groups - current session if provided
   const defaultOpen = createMemo(() => {
-    return props.sessionID ? [props.sessionID] : sortedGroups().slice(0, 1).map((g) => g.sessionID)
+    return props.sessionID
+      ? [props.sessionID]
+      : sortedGroups()
+          .slice(0, 1)
+          .map((g) => g.sessionID)
   })
 
   return (
@@ -162,9 +166,7 @@ export function DialogSnapshotsList(props: DialogSnapshotsListProps) {
                                     <div data-slot="snapshot-item-content">
                                       <Show
                                         when={editingId() === snapshot.id}
-                                        fallback={
-                                          <div data-slot="snapshot-item-name">{snapshot.name}</div>
-                                        }
+                                        fallback={<div data-slot="snapshot-item-name">{snapshot.name}</div>}
                                       >
                                         <input
                                           data-slot="snapshot-item-name-input"

@@ -188,7 +188,10 @@ export namespace TestWriterAgent {
           )
         } else if (frameworkCheck.installedSuccessfully) {
           // Update run command for Python venv if needed
-          if (testFramework.language.toLowerCase() === "python" && testFramework.framework.toLowerCase().includes("pytest")) {
+          if (
+            testFramework.language.toLowerCase() === "python" &&
+            testFramework.framework.toLowerCase().includes("pytest")
+          ) {
             finalTestFramework = {
               ...testFramework,
               runCommand: ".venv/bin/pytest -v",

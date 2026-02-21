@@ -7,7 +7,6 @@ import { showToast } from "@opencode-ai/ui/toast"
 interface TaskModeStatus {
   enabled: boolean
   tddMode: boolean
-  enhancedTasks: boolean
   exists: boolean
   path: string
   folderName: string
@@ -91,7 +90,6 @@ export function SessionTasksTab() {
   const [archiving, setArchiving] = createSignal(false)
   const [creatingPR, setCreatingPR] = createSignal(false)
   const [tddMode, setTddMode] = createSignal(false)
-  const [enhancedTasks, setEnhancedTasks] = createSignal(true)
   const [editingTaskId, setEditingTaskId] = createSignal<string | null>(null)
   const [editingTitle, setEditingTitle] = createSignal("")
 
@@ -200,14 +198,6 @@ export function SessionTasksTab() {
     }
   })
 
-  // Sync local enhancedTasks with server status
-  createEffect(() => {
-    const serverEnhancedTasks = status()?.enhancedTasks
-    if (serverEnhancedTasks !== undefined) {
-      setEnhancedTasks(serverEnhancedTasks)
-    }
-  })
-
   // Check if all tasks are completed
   const isAllDone = createMemo(() => {
     const counts = status()?.counts
@@ -225,7 +215,6 @@ export function SessionTasksTab() {
           startOrchestrator: false, // Don't auto-start, will start on first message
           folderName: folder,
           tddMode: tddMode(),
-          enhancedTasks: enhancedTasks(),
         }),
       })
       if (!response.ok) {
@@ -325,11 +314,14 @@ export function SessionTasksTab() {
 
   const updateTask = async (taskId: string, updates: { title?: string; status?: string }) => {
     try {
-      const response = await fetch(`${sdk.url}/taskmode/task/${taskId}?directory=${encodeURIComponent(sdk.directory)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      })
+      const response = await fetch(
+        `${sdk.url}/taskmode/task/${taskId}?directory=${encodeURIComponent(sdk.directory)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updates),
+        },
+      )
       if (!response.ok) throw new Error("Failed to update task")
       await fetchStatus()
       await fetchTaskDetails()
@@ -370,7 +362,6 @@ export function SessionTasksTab() {
     }
     return `${seconds}s`
   }
-
 
   const statusIcon = (taskStatus: string) => {
     switch (taskStatus) {
@@ -568,11 +559,6 @@ export function SessionTasksTab() {
                   TDD
                 </span>
               </Show>
-              <Show when={status()?.enhancedTasks}>
-                <span class="px-2 py-0.5 rounded-full bg-syntax-info/20 text-syntax-info text-11-medium">
-                  Enhanced
-                </span>
-              </Show>
             </div>
             <button
               class="px-3 py-1 rounded-md bg-surface-base text-text-base hover:bg-surface-raised-base-hover text-12-medium"
@@ -618,35 +604,6 @@ export function SessionTasksTab() {
                 </label>
                 <div class="text-11-regular text-text-weaker text-center">
                   Write tests after planning, run tests before completing tasks
-                </div>
-              </div>
-
-              {/* Enhanced Tasks option - only shown before work starts */}
-              <div class="flex flex-col gap-2 pt-3 border-t border-border-base w-full max-w-xs px-4">
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={enhancedTasks()}
-                    onChange={async (e) => {
-                      const newValue = e.currentTarget.checked
-                      setEnhancedTasks(newValue)
-                      // Update config immediately
-                      await fetch(`${sdk.url}/taskmode/enable?directory=${encodeURIComponent(sdk.directory)}`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          startOrchestrator: false,
-                          enhancedTasks: newValue,
-                        }),
-                      })
-                      await fetchStatus()
-                    }}
-                    class="w-4 h-4 rounded border-border-base bg-surface-inset focus:ring-2 focus:ring-syntax-info"
-                  />
-                  <span class="text-12-regular text-text-base">Enhanced Tasks</span>
-                </label>
-                <div class="text-11-regular text-text-weaker text-center">
-                  Best-of-2 planning with Claude CLI for higher quality plans
                 </div>
               </div>
             </div>
@@ -752,7 +709,10 @@ export function SessionTasksTab() {
                         {/* Expanded task details */}
                         <Show when={isExpanded()}>
                           <div class="px-4 py-3 border-t border-border-base bg-surface-inset">
-                            <Show when={details()} fallback={<div class="text-text-weak text-12-regular">Loading...</div>}>
+                            <Show
+                              when={details()}
+                              fallback={<div class="text-text-weak text-12-regular">Loading...</div>}
+                            >
                               <div class="flex flex-col gap-3">
                                 {/* Description */}
                                 <Show when={details()?.description}>
@@ -872,13 +832,16 @@ export function SessionTasksTab() {
                   <div class="flex flex-col gap-1">
                     <span class="text-11-medium text-text-weak">Total Tokens</span>
                     <span class="text-14-medium text-text-strong">
-                      {((completionStats()?.inputTokens ?? 0) + (completionStats()?.outputTokens ?? 0)).toLocaleString()}
+                      {(
+                        (completionStats()?.inputTokens ?? 0) + (completionStats()?.outputTokens ?? 0)
+                      ).toLocaleString()}
                     </span>
                   </div>
                   <div class="flex flex-col gap-1">
                     <span class="text-11-medium text-text-weak">Input / Output</span>
                     <span class="text-12-regular text-text-base">
-                      {(completionStats()?.inputTokens ?? 0).toLocaleString()} / {(completionStats()?.outputTokens ?? 0).toLocaleString()}
+                      {(completionStats()?.inputTokens ?? 0).toLocaleString()} /{" "}
+                      {(completionStats()?.outputTokens ?? 0).toLocaleString()}
                     </span>
                   </div>
                   <div class="flex flex-col gap-1">
@@ -910,7 +873,9 @@ export function SessionTasksTab() {
                     </button>
                     <Show when={showDiff()}>
                       <div class="max-h-64 overflow-auto rounded border border-border-base bg-surface-base">
-                        <pre class="p-3 text-11-regular font-mono whitespace-pre overflow-x-auto">{diff() || "No changes detected"}</pre>
+                        <pre class="p-3 text-11-regular font-mono whitespace-pre overflow-x-auto">
+                          {diff() || "No changes detected"}
+                        </pre>
                       </div>
                     </Show>
                   </div>

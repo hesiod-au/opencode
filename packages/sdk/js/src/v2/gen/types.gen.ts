@@ -651,6 +651,113 @@ export type EventFileWatcherUpdated = {
   }
 }
 
+export type EventTaskmodeTaskListUpdated = {
+  type: "taskmode.task_list.updated"
+  properties: {
+    taskListPath: string
+    taskCount: number
+    pendingCount: number
+    inProgressCount: number
+    completedCount: number
+  }
+}
+
+export type EventTaskmodeTaskStarted = {
+  type: "taskmode.task.started"
+  properties: {
+    taskId: string
+    title: string
+    sessionId: string
+  }
+}
+
+export type EventTaskmodeTaskCompleted = {
+  type: "taskmode.task.completed"
+  properties: {
+    taskId: string
+    title: string
+    sessionId: string
+    comments?: string
+  }
+}
+
+export type EventTaskmodeTaskPaused = {
+  type: "taskmode.task.paused"
+  properties: {
+    taskId: string
+    title: string
+    sessionId: string
+    reason: string
+    collidingTaskId?: string
+    collidingFile?: string
+  }
+}
+
+export type EventTaskmodeTaskError = {
+  type: "taskmode.task.error"
+  properties: {
+    taskId: string
+    title: string
+    sessionId?: string
+    error: string
+  }
+}
+
+export type EventTaskmodeOrchestratorStarted = {
+  type: "taskmode.orchestrator.started"
+  properties: {
+    taskListPath: string
+  }
+}
+
+export type EventTaskmodeOrchestratorStopped = {
+  type: "taskmode.orchestrator.stopped"
+  properties: {
+    taskListPath: string
+    reason: "completed" | "error" | "manual"
+    reportSessionId?: string
+  }
+}
+
+export type EventTaskmodeOrchestratorPhaseChanged = {
+  type: "taskmode.orchestrator.phase_changed"
+  properties: {
+    phase: string
+    detail?: string
+  }
+}
+
+export type EventTaskmodePlanningStarted = {
+  type: "taskmode.planning.started"
+  properties: {
+    sessionId: string
+  }
+}
+
+export type EventTaskmodePlanningCompleted = {
+  type: "taskmode.planning.completed"
+  properties: {
+    sessionId: string
+    taskCount: number
+  }
+}
+
+export type EventTaskmodeTestWritingStarted = {
+  type: "taskmode.test_writing.started"
+  properties: {
+    sessionId: string
+    taskCount: number
+  }
+}
+
+export type EventTaskmodeTestWritingCompleted = {
+  type: "taskmode.test_writing.completed"
+  properties: {
+    sessionId: string
+    tasksWithTests: number
+  }
+}
+
 export type Todo = {
   /**
    * Brief description of the task
@@ -897,6 +1004,63 @@ export type EventWorktreeFailed = {
   }
 }
 
+export type EventWorkflowStarted = {
+  type: "workflow.started"
+  properties: {
+    workflowId: string
+    parentSessionId?: string
+  }
+}
+
+export type EventWorkflowStopped = {
+  type: "workflow.stopped"
+  properties: {
+    workflowId: string
+    reason: "completed" | "error" | "manual"
+    reportSessionId?: string
+  }
+}
+
+export type EventWorkflowPhaseChanged = {
+  type: "workflow.phase_changed"
+  properties: {
+    workflowId: string
+    phase: string
+    detail?: string
+  }
+}
+
+export type EventWorkflowProgress = {
+  type: "workflow.progress"
+  properties: {
+    workflowId: string
+    message: string
+  }
+}
+
+export type EventPrReviewCycleStarted = {
+  type: "pr-review.cycle.started"
+  properties: {
+    cycleNumber: number
+    commentCount: number
+  }
+}
+
+export type EventPrReviewCycleCompleted = {
+  type: "pr-review.cycle.completed"
+  properties: {
+    cycleNumber: number
+    commitSha: string
+  }
+}
+
+export type EventPrReviewNoNewComments = {
+  type: "pr-review.no_new_comments"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
 export type Event =
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
@@ -920,6 +1084,18 @@ export type Event =
   | EventQuestionRejected
   | EventSessionCompacted
   | EventFileWatcherUpdated
+  | EventTaskmodeTaskListUpdated
+  | EventTaskmodeTaskStarted
+  | EventTaskmodeTaskCompleted
+  | EventTaskmodeTaskPaused
+  | EventTaskmodeTaskError
+  | EventTaskmodeOrchestratorStarted
+  | EventTaskmodeOrchestratorStopped
+  | EventTaskmodeOrchestratorPhaseChanged
+  | EventTaskmodePlanningStarted
+  | EventTaskmodePlanningCompleted
+  | EventTaskmodeTestWritingStarted
+  | EventTaskmodeTestWritingCompleted
   | EventTodoUpdated
   | EventTuiPromptAppend
   | EventTuiCommandExecute
@@ -940,6 +1116,13 @@ export type Event =
   | EventPtyDeleted
   | EventWorktreeReady
   | EventWorktreeFailed
+  | EventWorkflowStarted
+  | EventWorkflowStopped
+  | EventWorkflowPhaseChanged
+  | EventWorkflowProgress
+  | EventPrReviewCycleStarted
+  | EventPrReviewCycleCompleted
+  | EventPrReviewNoNewComments
 
 export type GlobalEvent = {
   directory: string
@@ -1814,6 +1997,121 @@ export type Config = {
      * Enable pruning of old tool outputs (default: true)
      */
     prune?: boolean
+    relevance?: {
+      /**
+       * Agent enablement for relevance compaction
+       */
+      agent?: {
+        [key: string]: boolean
+      }
+      /**
+       * Mode enablement for relevance compaction
+       */
+      mode?: {
+        [key: string]: boolean
+      }
+      /**
+       * Context usage ratio to trigger relevance compaction
+       */
+      trigger?: number
+      /**
+       * Target context usage ratio after compaction
+       */
+      target?: number
+      /**
+       * Model-specific target ratios (keys may be provider/model or model id)
+       */
+      model?: {
+        [key: string]: number
+      }
+      /**
+       * Number of recent messages to keep
+       */
+      recent?: number
+      /**
+       * Reserved output tokens
+       */
+      reserve?: number
+    }
+  }
+  /**
+   * Workflow configuration
+   */
+  workflows?: {
+    /**
+     * Currently active workflow ID
+     */
+    active?: string
+  }
+  /**
+   * PR review workflow configuration
+   */
+  prReview?: {
+    /**
+     * Enable PR review workflow
+     */
+    enabled?: boolean
+    /**
+     * Minutes between comment checks (default: 10)
+     */
+    pollIntervalMinutes?: number
+    /**
+     * Max review/fix cycles (default: 20)
+     */
+    maxCycles?: number
+    /**
+     * Test command (auto-detected if omitted)
+     */
+    testCommand?: string
+    /**
+     * PR number (auto-detected from branch)
+     */
+    prNumber?: number
+    /**
+     * Comment to post after each fix cycle (default: '@codex review')
+     */
+    reviewRequestComment?: string
+  }
+  /**
+   * Task mode configuration for multi-agent orchestration
+   */
+  taskMode?: {
+    /**
+     * Enable task mode for multi-agent orchestration
+     */
+    enabled?: boolean
+    /**
+     * Path to the task list markdown file (default: .opencode/tasks/default/task_list.md)
+     */
+    listPath?: string
+    /**
+     * Require user confirmation before executing generated plans
+     */
+    requirePlanConfirmation?: boolean
+    /**
+     * Seconds to wait between launching task agents (default: 5)
+     */
+    agentLaunchStaggerSeconds?: number
+    /**
+     * Milliseconds between polling for task list changes (default: 1000)
+     */
+    pollIntervalMs?: number
+    /**
+     * Maximum number of task agents to run concurrently (default: 3)
+     */
+    maxConcurrentTasks?: number
+    /**
+     * Enable TDD mode: write tests after planning, run tests before completing tasks
+     */
+    tddMode?: boolean
+    /**
+     * Maximum test/fix iterations before failing a task in TDD mode (default: 10)
+     */
+    maxTestRetries?: number
+    /**
+     * Extra instructions injected into every task and test-fix prompt (e.g., runtime constraints, naming conventions)
+     */
+    taskPromptGuardrails?: string
   }
   experimental?: {
     disable_paste_summary?: boolean
@@ -2139,6 +2437,31 @@ export type McpStatus =
   | McpStatusFailed
   | McpStatusNeedsAuth
   | McpStatusNeedsClientRegistration
+
+export type WorkflowInfo = {
+  id: string
+  name: string
+  running: boolean
+  hasConfirm: boolean
+}
+
+export type WorkflowStatus = {
+  running: boolean
+  phase?: string
+  phaseDetail?: string
+  parentSessionId?: string
+  startedAt?: number
+  completedAt?: number
+  stats?: {
+    inputTokens: number
+    outputTokens: number
+    cost: number
+    modifiedFiles: Array<string>
+  }
+  extra?: {
+    [key: string]: unknown
+  }
+}
 
 export type Path = {
   home: string
@@ -4699,6 +5022,654 @@ export type McpDisconnectResponses = {
 }
 
 export type McpDisconnectResponse = McpDisconnectResponses[keyof McpDisconnectResponses]
+
+export type TaskmodeGetData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/taskmode"
+}
+
+export type TaskmodeGetResponses = {
+  /**
+   * Task list markdown content
+   */
+  200: {
+    exists: boolean
+    content?: string
+    path: string
+  }
+}
+
+export type TaskmodeGetResponse = TaskmodeGetResponses[keyof TaskmodeGetResponses]
+
+export type TaskmodeStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/taskmode/status"
+}
+
+export type TaskmodeStatusResponses = {
+  /**
+   * Task list status
+   */
+  200: {
+    enabled: boolean
+    exists: boolean
+    path: string
+    orchestratorRunning: boolean
+    parentSessionId?: string
+    activeTasks: number
+    phase?: string
+    phaseDetail?: string
+    taskList?: {
+      title?: string
+      description?: string
+      tasks: Array<{
+        id: string
+        title: string
+        status: "todo" | "in-progress" | "done" | "error" | "paused"
+        assignee?: string
+        dependencies?: Array<string>
+        file?: string
+      }>
+      e2eTest?: string
+      testFramework?: {
+        language: string
+        framework: string
+        runCommand?: string
+      }
+    }
+    counts?: {
+      total: number
+      pending: number
+      inProgress: number
+      completed: number
+      error: number
+      paused: number
+    }
+  }
+}
+
+export type TaskmodeStatusResponse = TaskmodeStatusResponses[keyof TaskmodeStatusResponses]
+
+export type TaskmodeFoldersData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/taskmode/folders"
+}
+
+export type TaskmodeFoldersResponses = {
+  /**
+   * List of task folders
+   */
+  200: {
+    folders: Array<{
+      name: string
+      hasTaskList: boolean
+      taskCount?: number
+    }>
+    currentFolder: string
+  }
+}
+
+export type TaskmodeFoldersResponse = TaskmodeFoldersResponses[keyof TaskmodeFoldersResponses]
+
+export type TaskmodeTaskGetData = {
+  body?: never
+  path: {
+    taskId: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/taskmode/task/{taskId}"
+}
+
+export type TaskmodeTaskGetErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type TaskmodeTaskGetError = TaskmodeTaskGetErrors[keyof TaskmodeTaskGetErrors]
+
+export type TaskmodeTaskGetResponses = {
+  /**
+   * Task details
+   */
+  200: {
+    task?: {
+      id: string
+      title: string
+      status: "todo" | "in-progress" | "done" | "error" | "paused"
+      assignee?: string
+      dependencies?: Array<string>
+      file?: string
+    }
+    file?: {
+      id: string
+      title: string
+      description: string
+      status?: "todo" | "in-progress" | "done" | "error" | "paused"
+      dependencies?: Array<string>
+      files?: Array<string>
+      tests?: Array<string>
+      comments?: string
+      sessionId?: string
+      startedAt?: string
+      completedAt?: string
+      attemptCount?: number
+    }
+  }
+}
+
+export type TaskmodeTaskGetResponse = TaskmodeTaskGetResponses[keyof TaskmodeTaskGetResponses]
+
+export type TaskmodeTaskUpdateData = {
+  body?: {
+    status?: "todo" | "in-progress" | "done" | "error" | "paused"
+    assignee?: string
+    title?: string
+  }
+  path: {
+    taskId: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/taskmode/task/{taskId}"
+}
+
+export type TaskmodeTaskUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type TaskmodeTaskUpdateError = TaskmodeTaskUpdateErrors[keyof TaskmodeTaskUpdateErrors]
+
+export type TaskmodeTaskUpdateResponses = {
+  /**
+   * Task updated
+   */
+  200: {
+    success: boolean
+    task?: {
+      id: string
+      title: string
+      status: "todo" | "in-progress" | "done" | "error" | "paused"
+      assignee?: string
+      dependencies?: Array<string>
+      file?: string
+    }
+  }
+}
+
+export type TaskmodeTaskUpdateResponse = TaskmodeTaskUpdateResponses[keyof TaskmodeTaskUpdateResponses]
+
+export type TaskmodeTasksDetailsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/taskmode/tasks/details"
+}
+
+export type TaskmodeTasksDetailsResponses = {
+  /**
+   * All task details
+   */
+  200: {
+    tasks: {
+      [key: string]: {
+        id: string
+        title: string
+        description: string
+        status?: "todo" | "in-progress" | "done" | "error" | "paused"
+        dependencies?: Array<string>
+        files?: Array<string>
+        tests?: Array<string>
+        comments?: string
+        sessionId?: string
+        startedAt?: string
+        completedAt?: string
+        attemptCount?: number
+      }
+    }
+  }
+}
+
+export type TaskmodeTasksDetailsResponse = TaskmodeTasksDetailsResponses[keyof TaskmodeTasksDetailsResponses]
+
+export type TaskmodeEnableData = {
+  body?: {
+    startOrchestrator?: boolean
+    parentSessionId?: string
+    folderName?: string
+    tddMode?: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/taskmode/enable"
+}
+
+export type TaskmodeEnableErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TaskmodeEnableError = TaskmodeEnableErrors[keyof TaskmodeEnableErrors]
+
+export type TaskmodeEnableResponses = {
+  /**
+   * Task mode enabled
+   */
+  200: {
+    success: boolean
+    orchestratorStarted: boolean
+  }
+}
+
+export type TaskmodeEnableResponse = TaskmodeEnableResponses[keyof TaskmodeEnableResponses]
+
+export type TaskmodeDisableData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/taskmode/disable"
+}
+
+export type TaskmodeDisableResponses = {
+  /**
+   * Task mode disabled
+   */
+  200: {
+    success: boolean
+  }
+}
+
+export type TaskmodeDisableResponse = TaskmodeDisableResponses[keyof TaskmodeDisableResponses]
+
+export type TaskmodeConfirmData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/taskmode/confirm"
+}
+
+export type TaskmodeConfirmErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TaskmodeConfirmError = TaskmodeConfirmErrors[keyof TaskmodeConfirmErrors]
+
+export type TaskmodeConfirmResponses = {
+  /**
+   * Plan confirmed
+   */
+  200: {
+    success: boolean
+  }
+}
+
+export type TaskmodeConfirmResponse = TaskmodeConfirmResponses[keyof TaskmodeConfirmResponses]
+
+export type TaskmodeStartData = {
+  body?: {
+    parentSessionId?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/taskmode/start"
+}
+
+export type TaskmodeStartResponses = {
+  /**
+   * Orchestrator started
+   */
+  200: {
+    success: boolean
+    running: boolean
+  }
+}
+
+export type TaskmodeStartResponse = TaskmodeStartResponses[keyof TaskmodeStartResponses]
+
+export type TaskmodeStopData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/taskmode/stop"
+}
+
+export type TaskmodeStopResponses = {
+  /**
+   * Orchestrator stopped
+   */
+  200: {
+    success: boolean
+  }
+}
+
+export type TaskmodeStopResponse = TaskmodeStopResponses[keyof TaskmodeStopResponses]
+
+export type TaskmodeStatsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/taskmode/stats"
+}
+
+export type TaskmodeStatsResponses = {
+  /**
+   * Completion stats
+   */
+  200: {
+    exists: boolean
+    stats?: {
+      startedAt?: number
+      completedAt?: number
+      durationMs?: number
+      inputTokens: number
+      outputTokens: number
+      cost: number
+      modifiedFiles: Array<string>
+    }
+  }
+}
+
+export type TaskmodeStatsResponse = TaskmodeStatsResponses[keyof TaskmodeStatsResponses]
+
+export type TaskmodeDiffData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/taskmode/diff"
+}
+
+export type TaskmodeDiffResponses = {
+  /**
+   * Unified diff
+   */
+  200: {
+    diff: string
+    fileCount: number
+  }
+}
+
+export type TaskmodeDiffResponse = TaskmodeDiffResponses[keyof TaskmodeDiffResponses]
+
+export type TaskmodeArchiveData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/taskmode/archive"
+}
+
+export type TaskmodeArchiveErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TaskmodeArchiveError = TaskmodeArchiveErrors[keyof TaskmodeArchiveErrors]
+
+export type TaskmodeArchiveResponses = {
+  /**
+   * Task folder archived
+   */
+  200: {
+    success: boolean
+    archivePath: string
+  }
+}
+
+export type TaskmodeArchiveResponse = TaskmodeArchiveResponses[keyof TaskmodeArchiveResponses]
+
+export type TaskmodeCreatePrData = {
+  body?: {
+    title: string
+    body?: string
+    branch?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/taskmode/create-pr"
+}
+
+export type TaskmodeCreatePrErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type TaskmodeCreatePrError = TaskmodeCreatePrErrors[keyof TaskmodeCreatePrErrors]
+
+export type TaskmodeCreatePrResponses = {
+  /**
+   * Pull request created
+   */
+  200: {
+    success: boolean
+    prUrl?: string
+    error?: string
+  }
+}
+
+export type TaskmodeCreatePrResponse = TaskmodeCreatePrResponses[keyof TaskmodeCreatePrResponses]
+
+export type WorkflowListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/workflow/list"
+}
+
+export type WorkflowListResponses = {
+  /**
+   * List of workflows
+   */
+  200: Array<WorkflowInfo>
+}
+
+export type WorkflowListResponse = WorkflowListResponses[keyof WorkflowListResponses]
+
+export type WorkflowStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/workflow/status"
+}
+
+export type WorkflowStatusResponses = {
+  /**
+   * Active workflow status or null
+   */
+  200: {
+    workflowId?: string
+    status?: WorkflowStatus
+  }
+}
+
+export type WorkflowStatusResponse = WorkflowStatusResponses[keyof WorkflowStatusResponses]
+
+export type WorkflowGetStatusData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/workflow/{id}/status"
+}
+
+export type WorkflowGetStatusErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type WorkflowGetStatusError = WorkflowGetStatusErrors[keyof WorkflowGetStatusErrors]
+
+export type WorkflowGetStatusResponses = {
+  /**
+   * Workflow status
+   */
+  200: WorkflowStatus
+}
+
+export type WorkflowGetStatusResponse = WorkflowGetStatusResponses[keyof WorkflowGetStatusResponses]
+
+export type WorkflowStartData = {
+  body?: {
+    parentSessionId?: string
+    userPrompt?: string
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/workflow/{id}/start"
+}
+
+export type WorkflowStartErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type WorkflowStartError = WorkflowStartErrors[keyof WorkflowStartErrors]
+
+export type WorkflowStartResponses = {
+  /**
+   * Workflow started
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type WorkflowStartResponse = WorkflowStartResponses[keyof WorkflowStartResponses]
+
+export type WorkflowStopData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/workflow/{id}/stop"
+}
+
+export type WorkflowStopErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type WorkflowStopError = WorkflowStopErrors[keyof WorkflowStopErrors]
+
+export type WorkflowStopResponses = {
+  /**
+   * Workflow stopped
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type WorkflowStopResponse = WorkflowStopResponses[keyof WorkflowStopResponses]
+
+export type WorkflowConfirmData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/workflow/{id}/confirm"
+}
+
+export type WorkflowConfirmErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type WorkflowConfirmError = WorkflowConfirmErrors[keyof WorkflowConfirmErrors]
+
+export type WorkflowConfirmResponses = {
+  /**
+   * Plan confirmed
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type WorkflowConfirmResponse = WorkflowConfirmResponses[keyof WorkflowConfirmResponses]
 
 export type TuiAppendPromptData = {
   body?: {

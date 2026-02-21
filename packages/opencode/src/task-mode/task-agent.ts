@@ -81,7 +81,9 @@ export namespace TaskAgent {
   }
 
   // Compute session stats from message parts
-  async function computeSessionStats(sessionId: string): Promise<{ inputTokens: number; outputTokens: number; cost: number }> {
+  async function computeSessionStats(
+    sessionId: string,
+  ): Promise<{ inputTokens: number; outputTokens: number; cost: number }> {
     const messages = await Session.messages({ sessionID: sessionId, includeCompacted: true })
     let inputTokens = 0
     let outputTokens = 0
@@ -157,10 +159,18 @@ export namespace TaskAgent {
       log.info("using test framework from task list", { testFramework, command })
     } else {
       // Fallback: Detect test runner based on project files
-      const hasBunLock = await Bun.file(`${Instance.directory}/bun.lock`).exists().catch(() => false)
-      const hasPackageJson = await Bun.file(`${Instance.directory}/package.json`).exists().catch(() => false)
-      const hasPytest = await Bun.file(`${Instance.directory}/pytest.ini`).exists().catch(() => false)
-      const hasPyprojectToml = await Bun.file(`${Instance.directory}/pyproject.toml`).exists().catch(() => false)
+      const hasBunLock = await Bun.file(`${Instance.directory}/bun.lock`)
+        .exists()
+        .catch(() => false)
+      const hasPackageJson = await Bun.file(`${Instance.directory}/package.json`)
+        .exists()
+        .catch(() => false)
+      const hasPytest = await Bun.file(`${Instance.directory}/pytest.ini`)
+        .exists()
+        .catch(() => false)
+      const hasPyprojectToml = await Bun.file(`${Instance.directory}/pyproject.toml`)
+        .exists()
+        .catch(() => false)
 
       if (hasPytest || hasPyprojectToml) {
         // Python project - use pytest (-k uses "or" keyword, not "|")

@@ -21,7 +21,10 @@ export function DialogArchiveList(props: DialogArchiveListProps) {
   const filteredItems = createMemo(() => archive.searchArchive(searchQuery()))
 
   const formatDate = (timestamp: number) => {
-    return DateTime.fromMillis(timestamp).toRelative() ?? DateTime.fromMillis(timestamp).toLocaleString(DateTime.DATETIME_MED)
+    return (
+      DateTime.fromMillis(timestamp).toRelative() ??
+      DateTime.fromMillis(timestamp).toLocaleString(DateTime.DATETIME_MED)
+    )
   }
 
   const truncateContent = (content: string, maxLength = 100) => {
@@ -60,7 +63,8 @@ export function DialogArchiveList(props: DialogArchiveListProps) {
   }
 
   const handleSaveAsSnippet = (item: ArchivedItem) => {
-    const snippetName = item.type === "tool" && item.metadata.toolName ? `${item.metadata.toolName} output` : `Archived ${item.type}`
+    const snippetName =
+      item.type === "tool" && item.metadata.toolName ? `${item.metadata.toolName} output` : `Archived ${item.type}`
 
     dialog.show(() => (
       <DialogSnippetEditor

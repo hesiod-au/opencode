@@ -55,11 +55,7 @@ export function DialogConfirmDelete(props: DialogConfirmDeleteProps) {
           <button data-slot="confirm-delete-cancel" onClick={handleCancel} disabled={deleting()}>
             Cancel
           </button>
-          <button
-            data-slot="confirm-delete-confirm"
-            onClick={handleConfirm}
-            disabled={deleting()}
-          >
+          <button data-slot="confirm-delete-confirm" onClick={handleConfirm} disabled={deleting()}>
             {deleting() ? "Deleting..." : `Delete ${props.itemType}`}
           </button>
         </div>

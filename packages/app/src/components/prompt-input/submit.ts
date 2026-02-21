@@ -53,9 +53,7 @@ type PromptSubmitInput = {
   newSessionWorktree?: string
   onNewSessionWorktreeReset?: () => void
   onSubmit?: () => void
-  getPromptOverrides?: (
-    input: PromptOverridesInput,
-  ) => Promise<PromptOverrides | undefined>
+  getPromptOverrides?: (input: PromptOverridesInput) => Promise<PromptOverrides | undefined>
 }
 
 type CommentItem = {
