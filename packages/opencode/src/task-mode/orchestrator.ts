@@ -89,6 +89,24 @@ export namespace Orchestrator {
     await logAction(text)
   }
 
+  let cachedModel: { providerID: string; modelID: string } | undefined
+  async function resolveModel(): Promise<{ providerID: string; modelID: string }> {
+    if (cachedModel) return cachedModel
+    const agent = await Agent.get("build")
+    if (agent?.model) {
+      cachedModel = { providerID: agent.model.providerID, modelID: agent.model.modelID }
+      return cachedModel
+    }
+    const agents = await Agent.list()
+    const first = agents[0]
+    if (first?.model) {
+      cachedModel = { providerID: first.model.providerID, modelID: first.model.modelID }
+      return cachedModel
+    }
+    cachedModel = { providerID: "openai", modelID: "gpt-5.2-codex" }
+    return cachedModel
+  }
+
   async function logAction(text: string): Promise<void> {
     if (!state?.parentSessionId) {
       log.warn("logAction called but no parentSessionId", { text: text.slice(0, 50) })
@@ -98,6 +116,7 @@ export namespace Orchestrator {
     try {
       const messageID = Identifier.ascending("message")
       const partID = Identifier.ascending("part")
+      const model = await resolveModel()
 
       log.info("logAction: creating message", { messageID, parentSessionId: state.parentSessionId, text: text.slice(0, 50) })
 
@@ -106,8 +125,8 @@ export namespace Orchestrator {
         sessionID: state.parentSessionId,
         role: "user",
         time: { created: Date.now() },
-        agent: "orchestrator",
-        model: { providerID: "system", modelID: "orchestrator" },
+        agent: "build",
+        model,
       })
 
       await Session.updatePart({
@@ -116,6 +135,7 @@ export namespace Orchestrator {
         messageID,
         type: "text",
         text,
+        synthetic: true,
       })
 
       log.info("logAction: message created successfully", { messageID })
@@ -195,10 +215,10 @@ export namespace Orchestrator {
     parentSessionId: string | undefined,
     stats: { inputTokens: number; outputTokens: number; cost: number; modifiedFiles: Set<string> },
     testInfo?: { testsCouldNotRun?: boolean; testsCouldNotRunReason?: string },
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     if (!parentSessionId) {
       log.warn("cannot create final report without parent session")
-      return
+      return undefined
     }
 
     try {
@@ -284,13 +304,14 @@ ${Array.from(stats.modifiedFiles).map(f => `- \`${f}\``).join("\n") || "No files
       const messageID = Identifier.ascending("message")
       const partID = Identifier.ascending("part")
 
+      const model = await resolveModel()
       await Session.updateMessage({
         id: messageID,
         sessionID: reportSession.id,
         role: "user",
         time: { created: Date.now() },
-        agent: "orchestrator",
-        model: { providerID: "system", modelID: "final-report" },
+        agent: "build",
+        model,
       })
 
       await Session.updatePart({
@@ -299,6 +320,7 @@ ${Array.from(stats.modifiedFiles).map(f => `- \`${f}\``).join("\n") || "No files
         messageID,
         type: "text",
         text: reportContent,
+        synthetic: true,
       })
 
       // Compute and store file diffs for the review tab
@@ -327,8 +349,10 @@ ${Array.from(stats.modifiedFiles).map(f => `- \`${f}\``).join("\n") || "No files
         : ""
       await logAction(`**Final Report created** - see child session for details\n\n**Summary:** ${counts.completed}/${counts.total} tasks completed, ${totalTestsPassed} tests passed${testWarning}`)
 
+      return reportSession.id
     } catch (err) {
       log.error("failed to create final report", { error: err })
+      return undefined
     }
   }
 
@@ -889,7 +913,10 @@ The E2E test validates that all components work together correctly. Focus on int
     await runLoop()
   }
 
-  export async function stop(reason: "completed" | "error" | "manual" = "manual"): Promise<void> {
+  export async function stop(
+    reason: "completed" | "error" | "manual" = "manual",
+    reportSessionId?: string,
+  ): Promise<void> {
     if (!state) {
       log.warn("orchestrator not running")
       return
@@ -927,6 +954,7 @@ The E2E test validates that all components work together correctly. Focus on int
     Bus.publish(TaskModeEvent.OrchestratorStopped, {
       taskListPath: paths.taskListPath,
       reason,
+      reportSessionId,
     })
 
     state = null
@@ -1063,12 +1091,12 @@ The E2E test validates that all components work together correctly. Focus on int
 
           // Create final report as a child session
           setPhase("completing")
-          await createFinalReport(taskList, state.paths, state.parentSessionId, state.stats, {
+          const reportSessionId = await createFinalReport(taskList, state.paths, state.parentSessionId, state.stats, {
             testsCouldNotRun,
             testsCouldNotRunReason,
           })
 
-          await stop(hasErrors ? "error" : "completed")
+          await stop(hasErrors ? "error" : "completed", reportSessionId)
           return
         }
 

@@ -6,7 +6,7 @@ import { cmd } from "./cmd"
 import { Flag } from "../../flag/flag"
 import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
-import { createOpencodeClient, type Message, type OpencodeClient, type ToolPart } from "@opencode-ai/sdk/v2"
+import { createOpencodeClient, type OpencodeClient, type ToolPart } from "@opencode-ai/sdk/v2"
 import { Server } from "../../server/server"
 import { Provider } from "../../provider/provider"
 import { Agent } from "../../agent/agent"
@@ -514,12 +514,72 @@ export const RunCommand = cmd({
             UI.error(err)
           }
 
+          // Task mode event handling
+          if (args.taskMode) {
+            const ev = event as { type: string; properties: Record<string, any> }
+
+            if (ev.type === "taskmode.orchestrator.phase_changed") {
+              if (!emit("taskmode.phase_changed", ev.properties)) {
+                UI.println(UI.Style.TEXT_INFO_BOLD + "~  " + UI.Style.TEXT_NORMAL + `Phase: ${ev.properties.phase}`)
+              }
+            }
+
+            if (ev.type === "taskmode.task.started") {
+              if (!emit("taskmode.task.started", ev.properties)) {
+                UI.println(
+                  UI.Style.TEXT_INFO_BOLD + "•  " + UI.Style.TEXT_NORMAL + `Task ${ev.properties.taskId}: ${ev.properties.title}`,
+                )
+              }
+            }
+
+            if (ev.type === "taskmode.task.completed") {
+              if (!emit("taskmode.task.completed", ev.properties)) {
+                UI.println(
+                  UI.Style.TEXT_SUCCESS_BOLD + "✓  " + UI.Style.TEXT_NORMAL + `Task ${ev.properties.taskId}: ${ev.properties.title}`,
+                )
+              }
+            }
+
+            if (ev.type === "taskmode.task.error") {
+              if (!emit("taskmode.task.error", ev.properties)) {
+                UI.println(
+                  UI.Style.TEXT_DANGER_BOLD + "✗  " + UI.Style.TEXT_NORMAL + `Task ${ev.properties.taskId}: ${ev.properties.error}`,
+                )
+              }
+            }
+
+            if (ev.type === "taskmode.task_list.updated") {
+              emit("taskmode.task_list.updated", ev.properties)
+            }
+
+            if (ev.type === "taskmode.orchestrator.stopped") {
+              const reportId = ev.properties.reportSessionId as string | undefined
+              if (reportId) {
+                const msgs = await sdk.session.messages({ sessionID: reportId })
+                const parts = msgs.data?.flatMap((m) => m.parts ?? []) ?? []
+                for (const part of parts) {
+                  if (part.type === "text" && "text" in part && part.text) {
+                    if (emit("taskmode.report", { text: part.text })) continue
+                    if (!process.stdout.isTTY) {
+                      process.stdout.write(part.text + EOL)
+                    } else {
+                      UI.empty()
+                      UI.println(part.text)
+                      UI.empty()
+                    }
+                  }
+                }
+              }
+              break
+            }
+          }
+
           if (
             event.type === "session.status" &&
             event.properties.sessionID === sessionID &&
             event.properties.status.type === "idle"
           ) {
-            break
+            if (!args.taskMode) break
           }
 
           if (event.type === "permission.asked") {
@@ -590,7 +650,7 @@ export const RunCommand = cmd({
         }
       }
 
-      loop().catch((e) => {
+      const loopPromise = loop().catch((e) => {
         console.error(e)
         process.exit(1)
       })
@@ -613,6 +673,10 @@ export const RunCommand = cmd({
           variant: args.variant,
           parts: [...files, { type: "text", text: message }],
         })
+      }
+
+      if (args.taskMode) {
+        await loopPromise
       }
     }
 

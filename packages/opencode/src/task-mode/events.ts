@@ -66,6 +66,7 @@ export namespace TaskModeEvent {
     z.object({
       taskListPath: z.string(),
       reason: z.enum(["completed", "error", "manual"]),
+      reportSessionId: z.string().optional(),
     }),
   )
 
