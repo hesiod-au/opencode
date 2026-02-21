@@ -1343,6 +1343,32 @@ ToolRegistry.register({
   },
 })
 
+ToolRegistry.register({
+  name: "task-report",
+  render(props) {
+    const statusEmoji = props.input.taskStatus === "done" ? "✓" : props.input.taskStatus === "error" ? "✗" : "○"
+    return (
+      <BasicTool
+        {...props}
+        defaultOpen={props.input.taskStatus === "error"}
+        icon="checklist"
+        trigger={{
+          title: `${statusEmoji} Task ${props.input.taskId}: ${props.input.title}`,
+          subtitle: props.input.taskStatus,
+        }}
+      >
+        <Show when={props.output}>
+          {(output) => (
+            <div data-component="tool-output" data-scrollable>
+              <Markdown text={output()} />
+            </div>
+          )}
+        </Show>
+      </BasicTool>
+    )
+  },
+})
+
 function QuestionPrompt(props: { request: QuestionRequest }) {
   const data = useData()
   const i18n = useI18n()

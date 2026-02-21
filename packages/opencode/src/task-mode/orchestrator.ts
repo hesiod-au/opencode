@@ -236,6 +236,7 @@ export namespace Orchestrator {
 
       // Read task files to get descriptions and test info
       const taskSummaries: string[] = []
+      const taskEntries: Array<{ task: TaskList.TaskEntry; summary: string }> = []
       let totalTestsPassed = 0
 
       for (const task of taskList.tasks) {
@@ -264,6 +265,7 @@ export namespace Orchestrator {
         }
 
         taskSummaries.push(summary)
+        taskEntries.push({ task, summary })
       }
 
       // Build warnings section if tests couldn't run
@@ -350,13 +352,84 @@ ${
 
       log.info("final report created", { sessionId: reportSession.id })
 
-      // Also log to parent session
+      // Add report as a proper assistant message in the parent session so it renders
+      // as standard response text (summary) + individual grey boxes (one per task)
+      const now = Date.now()
+      const duration = state?.completedAt ? state.completedAt - state.startedAt : 0
       const testWarning = testInfo?.testsCouldNotRun
-        ? `\n\n⚠️ **Tests could not be run automatically.** Please run tests manually.`
+        ? `\n\n⚠️ **Tests could not be run automatically.** ${testInfo.testsCouldNotRunReason || ""} Please run tests manually.`
         : ""
-      await logAction(
-        `**Final Report created** - see child session for details\n\n**Summary:** ${counts.completed}/${counts.total} tasks completed, ${totalTestsPassed} tests passed${testWarning}`,
-      )
+      const summaryText =
+        `## Task Mode Complete\n\n**${counts.completed}/${counts.total} tasks completed**` +
+        (totalTestsPassed > 0 ? ` · ${totalTestsPassed} tests passed` : "") +
+        ` · ${formatDuration(duration)}\n\n` +
+        `**Cost:** $${stats.cost.toFixed(4)} · **Tokens:** ${(stats.inputTokens + stats.outputTokens).toLocaleString()} · **Files Modified:** ${stats.modifiedFiles.size}` +
+        testWarning
+
+      // Synthetic user message anchors the assistant response in the timeline
+      const userMsgID = Identifier.ascending("message")
+      await Session.updateMessage({
+        id: userMsgID,
+        sessionID: parentSessionId,
+        role: "user",
+        time: { created: now },
+        agent: "build",
+        model,
+      })
+      await Session.updatePart({
+        id: Identifier.ascending("part"),
+        sessionID: parentSessionId,
+        messageID: userMsgID,
+        type: "text",
+        text: "Task Mode completed",
+        synthetic: true,
+      })
+
+      // Assistant message with summary text + per-task tool parts
+      const asstMsgID = Identifier.ascending("message")
+      await Session.updateMessage({
+        id: asstMsgID,
+        sessionID: parentSessionId,
+        role: "assistant",
+        parentID: userMsgID,
+        time: { created: now, completed: now },
+        modelID: model.modelID,
+        providerID: model.providerID,
+        mode: "default",
+        agent: "build",
+        path: { cwd: Instance.directory, root: Instance.directory },
+        cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      })
+
+      // Summary TextPart (non-synthetic) — appears as the "Response" section
+      await Session.updatePart({
+        id: Identifier.ascending("part"),
+        sessionID: parentSessionId,
+        messageID: asstMsgID,
+        type: "text",
+        text: summaryText,
+      })
+
+      // One ToolPart per task — appear as grey expandable boxes in the steps section
+      for (const { task, summary } of taskEntries) {
+        await Session.updatePart({
+          id: Identifier.ascending("part"),
+          sessionID: parentSessionId,
+          messageID: asstMsgID,
+          type: "tool",
+          callID: Identifier.ascending("tool"),
+          tool: "task-report",
+          state: {
+            status: "completed",
+            input: { taskId: task.id, title: task.title, taskStatus: task.status },
+            output: summary,
+            title: `Task ${task.id}: ${task.title}`,
+            metadata: {},
+            time: { start: now, end: now },
+          },
+        })
+      }
 
       return reportSession.id
     } catch (err) {

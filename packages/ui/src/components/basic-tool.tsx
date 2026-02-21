@@ -37,6 +37,7 @@ export function BasicTool(props: BasicToolProps) {
   })
 
   const handleOpenChange = (value: boolean) => {
+    if (window.getSelection()?.toString()) return
     if (props.locked && !value) return
     setOpen(value)
   }
