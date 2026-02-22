@@ -3,6 +3,7 @@ import { describeRoute, validator } from "hono-openapi"
 import { resolver } from "hono-openapi"
 import { Instance } from "../../project/instance"
 import { Project } from "../../project/project"
+import { Vcs } from "../../project/vcs"
 import z from "zod"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
@@ -50,6 +51,28 @@ export const ProjectRoutes = lazy(() =>
       }),
       async (c) => {
         return c.json(Instance.project)
+      },
+    )
+    .get(
+      "/branch",
+      describeRoute({
+        summary: "Get current git branch",
+        description: "Returns the current git branch name for the active project.",
+        operationId: "project.branch",
+        responses: {
+          200: {
+            description: "Current branch name",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ branch: z.string().nullable() })),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const branch = await Vcs.branch()
+        return c.json({ branch: branch ?? null })
       },
     )
     .patch(

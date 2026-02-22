@@ -1,8 +1,8 @@
 import { createSignal, createEffect, onCleanup, Show, For, createMemo } from "solid-js"
-import { useParams } from "@solidjs/router"
 import { useSDK } from "@/context/sdk"
 import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
+import { WorkflowPanel } from "./session-workflows-panel"
 
 interface TaskModeStatus {
   enabled: boolean
@@ -50,17 +50,6 @@ interface TaskFileData {
   completedAt?: string
 }
 
-interface TaskFolder {
-  name: string
-  hasTaskList: boolean
-  taskCount?: number
-}
-
-interface FoldersResponse {
-  folders: TaskFolder[]
-  currentFolder: string
-}
-
 interface CompletionStats {
   startedAt?: number
   completedAt?: number
@@ -72,16 +61,11 @@ interface CompletionStats {
 }
 
 export function SessionTasksTab() {
-  const params = useParams()
   const sdk = useSDK()
 
   const [status, setStatus] = createSignal<TaskModeStatus | null>(null)
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal<string | null>(null)
-  const [folders, setFolders] = createSignal<TaskFolder[]>([])
-  const [selectedFolder, setSelectedFolder] = createSignal("default")
-  const [customFolder, setCustomFolder] = createSignal("")
-  const [showFolderInput, setShowFolderInput] = createSignal(false)
   const [taskDetails, setTaskDetails] = createSignal<Record<string, TaskFileData>>({})
   const [expandedTasks, setExpandedTasks] = createSignal<Set<string>>(new Set())
   const [completionStats, setCompletionStats] = createSignal<CompletionStats | null>(null)
@@ -89,7 +73,6 @@ export function SessionTasksTab() {
   const [showDiff, setShowDiff] = createSignal(false)
   const [archiving, setArchiving] = createSignal(false)
   const [creatingPR, setCreatingPR] = createSignal(false)
-  const [tddMode, setTddMode] = createSignal(false)
   const [editingTaskId, setEditingTaskId] = createSignal<string | null>(null)
   const [editingTitle, setEditingTitle] = createSignal("")
 
@@ -106,19 +89,6 @@ export function SessionTasksTab() {
       setError(err.message || "Failed to load task mode status")
     } finally {
       setLoading(false)
-    }
-  }
-
-  const fetchFolders = async () => {
-    try {
-      const response = await fetch(`${sdk.url}/taskmode/folders?directory=${encodeURIComponent(sdk.directory)}`)
-      if (response.ok) {
-        const data: FoldersResponse = await response.json()
-        setFolders(data.folders)
-        setSelectedFolder(data.currentFolder)
-      }
-    } catch {
-      // Ignore errors, just use default
     }
   }
 
@@ -175,7 +145,6 @@ export function SessionTasksTab() {
   // Initial fetch and polling
   createEffect(() => {
     fetchStatus()
-    fetchFolders()
     fetchTaskDetails()
     fetchCompletionStats()
 
@@ -190,45 +159,12 @@ export function SessionTasksTab() {
     })
   })
 
-  // Sync local tddMode with server status
-  createEffect(() => {
-    const serverTddMode = status()?.tddMode
-    if (serverTddMode !== undefined) {
-      setTddMode(serverTddMode)
-    }
-  })
-
   // Check if all tasks are completed
   const isAllDone = createMemo(() => {
     const counts = status()?.counts
     if (!counts || counts.total === 0) return false
     return counts.completed + counts.error === counts.total
   })
-
-  const handleEnable = async (folderName?: string) => {
-    try {
-      const folder = folderName || (showFolderInput() ? customFolder() : selectedFolder())
-      const response = await fetch(`${sdk.url}/taskmode/enable?directory=${encodeURIComponent(sdk.directory)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          startOrchestrator: false, // Don't auto-start, will start on first message
-          folderName: folder,
-          tddMode: tddMode(),
-        }),
-      })
-      if (!response.ok) {
-        throw new Error("Failed to enable task mode")
-      }
-      await fetchStatus()
-      await fetchFolders()
-      setShowFolderInput(false)
-      setCustomFolder("")
-      showToast({ title: "Task mode enabled", description: `Using folder: ${folder}`, variant: "success" })
-    } catch (err: any) {
-      showToast({ title: "Failed to enable task mode", description: err.message, variant: "error" })
-    }
-  }
 
   const handleDisable = async () => {
     try {
@@ -387,6 +323,9 @@ export function SessionTasksTab() {
   return (
     <div class="@container h-full overflow-y-auto no-scrollbar pb-10">
       <div class="px-6 pt-4 flex flex-col gap-6">
+        {/* Workflows Panel */}
+        <WorkflowPanel onStatusChange={fetchStatus} />
+
         {/* Loading State */}
         <Show when={loading()}>
           <div class="flex items-center justify-center py-8 text-text-weak">
@@ -402,93 +341,6 @@ export function SessionTasksTab() {
             <div class="text-text-weak">{error()}</div>
             <button class="text-text-link hover:underline" onClick={fetchStatus}>
               Retry
-            </button>
-          </div>
-        </Show>
-
-        {/* Task Mode Not Enabled */}
-        <Show when={!loading() && !error() && !status()?.enabled}>
-          <div class="flex flex-col items-center justify-center py-8 gap-6">
-            <div class="flex flex-col items-center gap-2">
-              <Icon name="checklist" size="large" class="text-text-weak" />
-              <div class="text-text-weak text-center">
-                Task mode is not enabled.
-                <br />
-                Enable it to orchestrate multiple tasks in parallel.
-              </div>
-            </div>
-
-            {/* Folder Selection */}
-            <div class="flex flex-col gap-3 w-full max-w-sm">
-              <div class="text-12-medium text-text-base">Task Folder</div>
-
-              {/* Existing folders */}
-              <Show when={folders().length > 0}>
-                <div class="flex flex-col gap-1">
-                  <For each={folders()}>
-                    {(folder) => (
-                      <button
-                        class={`flex items-center justify-between px-3 py-2 rounded-md border text-left text-12-regular transition-colors ${
-                          selectedFolder() === folder.name && !showFolderInput()
-                            ? "border-border-strong bg-surface-base text-text-strong"
-                            : "border-border-base hover:border-border-strong text-text-base"
-                        }`}
-                        onClick={() => {
-                          setSelectedFolder(folder.name)
-                          setShowFolderInput(false)
-                        }}
-                      >
-                        <div class="flex items-center gap-2">
-                          <Icon name="folder" size="small" class="text-text-weak" />
-                          <span>{folder.name}</span>
-                        </div>
-                        <Show when={folder.hasTaskList}>
-                          <span class="text-11-regular text-text-weak">
-                            {folder.taskCount !== undefined ? `${folder.taskCount} tasks` : "has tasks"}
-                          </span>
-                        </Show>
-                      </button>
-                    )}
-                  </For>
-                </div>
-              </Show>
-
-              {/* Create new folder option */}
-              <button
-                class={`flex items-center gap-2 px-3 py-2 rounded-md border text-left text-12-regular transition-colors ${
-                  showFolderInput()
-                    ? "border-border-strong bg-surface-base text-text-strong"
-                    : "border-border-base border-dashed hover:border-border-strong text-text-weak"
-                }`}
-                onClick={() => setShowFolderInput(true)}
-              >
-                <Icon name="plus" size="small" />
-                <span>Create new folder</span>
-              </button>
-
-              {/* Custom folder input */}
-              <Show when={showFolderInput()}>
-                <div class="flex flex-col gap-2">
-                  <input
-                    type="text"
-                    placeholder="folder-name"
-                    value={customFolder()}
-                    onInput={(e) => setCustomFolder(e.currentTarget.value.replace(/[^a-zA-Z0-9-_]/g, ""))}
-                    class="px-3 py-2 rounded-md border border-border-base bg-surface-inset text-text-base text-12-regular placeholder:text-text-weak focus:outline-none focus:border-border-strong"
-                  />
-                  <div class="text-11-regular text-text-weaker">
-                    Path: .opencode/tasks/{customFolder() || "folder-name"}/task_list.md
-                  </div>
-                </div>
-              </Show>
-            </div>
-
-            <button
-              class="px-4 py-2 rounded-md bg-surface-primary text-text-on-primary hover:bg-surface-primary-hover disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={() => handleEnable()}
-              disabled={showFolderInput() && !customFolder()}
-            >
-              Enable Task Mode
             </button>
           </div>
         </Show>
@@ -576,35 +428,6 @@ export function SessionTasksTab() {
                 No task list yet.
                 <br />
                 Send a message to start the planning agent.
-              </div>
-
-              {/* TDD Mode option - only shown before work starts */}
-              <div class="flex flex-col gap-2 pt-3 border-t border-border-base w-full max-w-xs px-4">
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={tddMode()}
-                    onChange={async (e) => {
-                      const newValue = e.currentTarget.checked
-                      setTddMode(newValue)
-                      // Update config immediately
-                      await fetch(`${sdk.url}/taskmode/enable?directory=${encodeURIComponent(sdk.directory)}`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          startOrchestrator: false,
-                          tddMode: newValue,
-                        }),
-                      })
-                      await fetchStatus()
-                    }}
-                    class="w-4 h-4 rounded border-border-base bg-surface-inset focus:ring-2 focus:ring-syntax-info"
-                  />
-                  <span class="text-12-regular text-text-base">Enable TDD Mode</span>
-                </label>
-                <div class="text-11-regular text-text-weaker text-center">
-                  Write tests after planning, run tests before completing tasks
-                </div>
               </div>
             </div>
           </Show>
