@@ -39,6 +39,7 @@ export namespace Orchestrator {
     completedAt?: number
     phase?: OrchestratorPhase
     phaseDetail?: string
+    startSnapshot?: string // Snapshot hash taken at orchestrator start
     stats: {
       inputTokens: number
       outputTokens: number
@@ -63,6 +64,7 @@ export namespace Orchestrator {
     lastStatusMessage?: string // Track last status to avoid spam
     phase?: OrchestratorPhase
     phaseDetail?: string
+    startSnapshot?: string // Snapshot hash taken at orchestrator start
     stats: {
       inputTokens: number
       outputTokens: number
@@ -148,76 +150,12 @@ export namespace Orchestrator {
     }
   }
 
-  async function computeFileDiffs(modifiedFiles: Set<string>): Promise<Snapshot.FileDiff[]> {
-    const { execSync } = await import("child_process")
-    const cwd = Instance.directory
-    const diffs: Snapshot.FileDiff[] = []
-
-    for (const file of modifiedFiles) {
-      try {
-        let before = ""
-        let after = ""
-        let additions = 0
-        let deletions = 0
-        let status: "added" | "deleted" | "modified" = "modified"
-
-        // Get file status
-        const statusOutput = execSync(`git status --porcelain -- "${file}"`, { cwd, encoding: "utf-8" }).trim()
-        if (statusOutput.startsWith("??") || statusOutput.startsWith("A ")) {
-          status = "added"
-        } else if (statusOutput.startsWith("D ")) {
-          status = "deleted"
-        }
-
-        // Get before content (from HEAD)
-        if (status !== "added") {
-          try {
-            before = execSync(`git show HEAD:"${file}"`, { cwd, encoding: "utf-8", maxBuffer: 5 * 1024 * 1024 })
-          } catch {
-            before = ""
-          }
-        }
-
-        // Get after content (current working tree)
-        if (status !== "deleted") {
-          try {
-            after = await Bun.file(path.join(cwd, file)).text()
-          } catch {
-            after = ""
-          }
-        }
-
-        // Get numstat for additions/deletions
-        try {
-          const numstat = execSync(`git diff HEAD --numstat -- "${file}"`, { cwd, encoding: "utf-8" }).trim()
-          if (numstat) {
-            const [adds, dels] = numstat.split("\t")
-            additions = adds === "-" ? 0 : parseInt(adds ?? "0")
-            deletions = dels === "-" ? 0 : parseInt(dels ?? "0")
-            if (!Number.isFinite(additions)) additions = 0
-            if (!Number.isFinite(deletions)) deletions = 0
-          }
-        } catch {
-          // For untracked files, count all lines as additions
-          if (status === "added" && after) {
-            additions = after.split("\n").length
-          }
-        }
-
-        diffs.push({ file, before, after, additions, deletions, status })
-      } catch (err) {
-        log.warn("failed to compute diff for file", { file, error: err })
-      }
-    }
-
-    return diffs
-  }
-
   async function createFinalReport(
     taskList: TaskList.TaskListFile,
     paths: TaskList.Paths,
     parentSessionId: string | undefined,
     stats: { inputTokens: number; outputTokens: number; cost: number; modifiedFiles: Set<string> },
+    startSnapshot: string | undefined,
     testInfo?: { testsCouldNotRun?: boolean; testsCouldNotRunReason?: string },
   ): Promise<string | undefined> {
     if (!parentSessionId) {
@@ -329,25 +267,31 @@ ${
         messageID,
         type: "text",
         text: reportContent,
-        synthetic: true,
       })
 
-      // Compute and store file diffs for the review tab
-      if (stats.modifiedFiles.size > 0) {
-        const fileDiffs = await computeFileDiffs(stats.modifiedFiles)
-        await Storage.write(["session_diff", reportSession.id], fileDiffs)
-        await Session.update(reportSession.id, (draft) => {
-          draft.summary = {
-            additions: fileDiffs.reduce((sum, x) => sum + x.additions, 0),
-            deletions: fileDiffs.reduce((sum, x) => sum + x.deletions, 0),
-            files: fileDiffs.length,
+      // Compute and store file diffs for the review tab using the snapshot system
+      if (startSnapshot) {
+        try {
+          const endSnapshot = await Snapshot.track()
+          const fileDiffs = endSnapshot ? await Snapshot.diffFull(startSnapshot, endSnapshot) : []
+          if (fileDiffs.length > 0) {
+            await Storage.write(["session_diff", reportSession.id], fileDiffs)
+            await Session.update(reportSession.id, (draft) => {
+              draft.summary = {
+                additions: fileDiffs.reduce((sum, x) => sum + x.additions, 0),
+                deletions: fileDiffs.reduce((sum, x) => sum + x.deletions, 0),
+                files: fileDiffs.length,
+              }
+            })
+            Bus.publish(Session.Event.Diff, {
+              sessionID: reportSession.id,
+              diff: fileDiffs,
+            })
+            log.info("final report diffs stored", { sessionId: reportSession.id, fileCount: fileDiffs.length })
           }
-        })
-        Bus.publish(Session.Event.Diff, {
-          sessionID: reportSession.id,
-          diff: fileDiffs,
-        })
-        log.info("final report diffs stored", { sessionId: reportSession.id, fileCount: fileDiffs.length })
+        } catch (err) {
+          log.warn("failed to compute diffs for final report, continuing without them", { error: err })
+        }
       }
 
       log.info("final report created", { sessionId: reportSession.id })
@@ -729,6 +673,7 @@ The E2E test validates that all components work together correctly. Focus on int
       completedAt: state.completedAt,
       phase: state.phase,
       phaseDetail: state.phaseDetail,
+      startSnapshot: state.startSnapshot,
       stats: {
         inputTokens: state.stats.inputTokens,
         outputTokens: state.stats.outputTokens,
@@ -804,6 +749,12 @@ The E2E test validates that all components work together correctly. Focus on int
       log.warn("orchestrator started without parent session, actions will not be logged to UI")
     }
 
+    // Take a snapshot of the current working tree before any tasks run
+    const startSnapshot = await Snapshot.track().catch((err) => {
+      log.warn("failed to take start snapshot", { error: err })
+      return undefined
+    })
+
     state = {
       running: true,
       paths,
@@ -814,6 +765,7 @@ The E2E test validates that all components work together correctly. Focus on int
       pollInProgress: false,
       abortController: new AbortController(),
       startedAt: Date.now(),
+      startSnapshot,
       stats: {
         inputTokens: 0,
         outputTokens: 0,
@@ -822,7 +774,7 @@ The E2E test validates that all components work together correctly. Focus on int
       },
     }
 
-    log.info("orchestrator starting", { taskListPath: paths.taskListPath })
+    log.info("orchestrator starting", { taskListPath: paths.taskListPath, startSnapshot })
 
     // Log initial action to parent session
     await logAction(`**Orchestrator started**\n\nTask list: \`${paths.taskListPath}\``)
@@ -854,6 +806,12 @@ The E2E test validates that all components work together correctly. Focus on int
         }
         state.startedAt = persistedState.startedAt
         log.info("restored stats from previous run", { stats: persistedState.stats })
+      }
+
+      // Restore start snapshot from previous run (for accurate final diff)
+      if (persistedState.startSnapshot) {
+        state.startSnapshot = persistedState.startSnapshot
+        log.info("restored start snapshot from previous run", { startSnapshot: persistedState.startSnapshot })
       }
 
       // Mark any previously active tasks as needing recovery
@@ -1191,10 +1149,17 @@ The E2E test validates that all components work together correctly. Focus on int
 
           // Create final report as a child session
           setPhase("completing")
-          const reportSessionId = await createFinalReport(taskList, state.paths, state.parentSessionId, state.stats, {
-            testsCouldNotRun,
-            testsCouldNotRunReason,
-          })
+          const reportSessionId = await createFinalReport(
+            taskList,
+            state.paths,
+            state.parentSessionId,
+            state.stats,
+            state.startSnapshot,
+            {
+              testsCouldNotRun,
+              testsCouldNotRunReason,
+            },
+          )
 
           await stop(hasErrors ? "error" : "completed", reportSessionId)
           return
