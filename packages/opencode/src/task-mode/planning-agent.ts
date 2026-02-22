@@ -121,48 +121,61 @@ export namespace PlanningAgent {
 
       // Determine final plan table via assessment
       let finalPlanText: string
+
+      if (!defaultPlan && !cliPlan) {
+        throw new Error("Both default model and Claude CLI failed to generate analyses")
+      }
+
+      // Use whichever plan(s) are available; pass single plan as both A and B if only one succeeded
+      const plan1 = defaultPlan ?? cliPlan!
+      const plan2 = cliPlan ?? defaultPlan!
+      const source1 = defaultPlan ? "Default Model" : "Claude CLI"
+      const source2 = cliPlan ? "Claude CLI" : "Default Model"
+
       if (defaultPlan && cliPlan) {
         await logToParent(
           parentSessionId,
           "**Planning:** both analyses received, assessing and synthesizing task table...",
         )
-
-        // Randomize which is A vs B to reduce positional bias
-        const swapped = Math.random() < 0.5
-        const planA = swapped ? cliPlan : defaultPlan
-        const planB = swapped ? defaultPlan : cliPlan
-        const sourceA = swapped ? "Claude CLI" : "Default Model"
-        const sourceB = swapped ? "Default Model" : "Claude CLI"
-
-        try {
-          const assessmentPrompt = PlanningPrompts.buildAssessmentPrompt(planA, planB, sourceA, sourceB)
-          const assessMessageID = Identifier.ascending("message")
-          const assessResult = await SessionPrompt.prompt({
-            messageID: assessMessageID,
-            sessionID: sessionId,
-            model: { modelID: model.modelID, providerID: model.providerID },
-            agent: agent.name,
-            variant: "max",
-            parts: [{ type: "text", text: assessmentPrompt }],
-          })
-          finalPlanText = extractResponseText(assessResult)
-          await logToParent(parentSessionId, "**Planning:** assessment complete, synthesized task table ready")
-        } catch (err: any) {
-          log.warn("assessment failed, falling back to default model analysis", { error: err })
-          await logToParent(
-            parentSessionId,
-            `**Planning:** assessment failed (${err.message}), using default model analysis`,
-          )
-          finalPlanText = defaultPlan
-        }
       } else if (defaultPlan) {
-        await logToParent(parentSessionId, "**Planning:** Claude CLI unavailable, using default model analysis")
-        finalPlanText = defaultPlan
-      } else if (cliPlan) {
-        await logToParent(parentSessionId, "**Planning:** default model failed, using Claude CLI analysis")
-        finalPlanText = cliPlan
+        await logToParent(
+          parentSessionId,
+          "**Planning:** Claude CLI unavailable, synthesizing task table from default model analysis...",
+        )
       } else {
-        throw new Error("Both default model and Claude CLI failed to generate analyses")
+        await logToParent(
+          parentSessionId,
+          "**Planning:** default model failed, synthesizing task table from Claude CLI analysis...",
+        )
+      }
+
+      // Randomize A/B to reduce positional bias (only meaningful when both are available)
+      const swapped = !!(defaultPlan && cliPlan && Math.random() < 0.5)
+      const planA = swapped ? plan2 : plan1
+      const planB = swapped ? plan1 : plan2
+      const sourceA = swapped ? source2 : source1
+      const sourceB = swapped ? source1 : source2
+
+      try {
+        const assessmentPrompt = PlanningPrompts.buildAssessmentPrompt(planA, planB, sourceA, sourceB)
+        const assessMessageID = Identifier.ascending("message")
+        const assessResult = await SessionPrompt.prompt({
+          messageID: assessMessageID,
+          sessionID: sessionId,
+          model: { modelID: model.modelID, providerID: model.providerID },
+          agent: agent.name,
+          variant: "max",
+          parts: [{ type: "text", text: assessmentPrompt }],
+        })
+        finalPlanText = extractResponseText(assessResult)
+        await logToParent(parentSessionId, "**Planning:** assessment complete, synthesized task table ready")
+      } catch (err: any) {
+        log.warn("assessment failed, falling back to available analysis", { error: err })
+        await logToParent(
+          parentSessionId,
+          `**Planning:** assessment failed (${err.message}), using available analysis`,
+        )
+        finalPlanText = plan1
       }
 
       // Parse the plan table from the final text
