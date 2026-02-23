@@ -2,7 +2,7 @@ import { createSignal, createEffect, onCleanup, Show, For, createMemo } from "so
 import { useSDK } from "@/context/sdk"
 import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
-import { WorkflowPanel } from "./session-workflows-panel"
+import { TaskModeCard } from "./session-workflows-panel"
 
 interface TaskModeStatus {
   enabled: boolean
@@ -323,8 +323,15 @@ export function SessionTasksTab() {
   return (
     <div class="@container h-full overflow-y-auto no-scrollbar pb-10">
       <div class="px-6 pt-4 flex flex-col gap-6">
-        {/* Workflows Panel */}
-        <WorkflowPanel onStatusChange={fetchStatus} />
+        {/* Task Mode start controls — shown when not enabled */}
+        <Show when={!loading() && !status()?.enabled}>
+          <TaskModeCard
+            status={undefined}
+            sdkUrl={sdk.url}
+            directory={sdk.directory}
+            onStatusChange={fetchStatus}
+          />
+        </Show>
 
         {/* Loading State */}
         <Show when={loading()}>

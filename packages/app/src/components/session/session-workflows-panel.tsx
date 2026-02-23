@@ -33,7 +33,7 @@ function uniqueTaskName(branch: string, existing: string[]) {
   return `${base}-${i}`
 }
 
-function TaskModeCard(props: {
+export function TaskModeCard(props: {
   status: WorkflowStatus | undefined
   sdkUrl: string
   directory: string
