@@ -179,11 +179,14 @@ function PRReviewCard(props: {
   directory: string
   onStatusChange?: () => void
 }) {
-  const [pollInterval, setPollInterval] = createSignal(10)
-  const [maxCycles, setMaxCycles] = createSignal(20)
+  const [pollIntervalStr, setPollIntervalStr] = createSignal("2")
+  const [maxCyclesStr, setMaxCyclesStr] = createSignal("20")
   const [testCommand, setTestCommand] = createSignal("")
   const [starting, setStarting] = createSignal(false)
   const [stopping, setStopping] = createSignal(false)
+
+  const pollInterval = () => Math.max(1, parseInt(pollIntervalStr(), 10) || 2)
+  const maxCycles = () => Math.max(1, parseInt(maxCyclesStr(), 10) || 20)
 
   const handleStart = async () => {
     setStarting(true)
@@ -273,8 +276,8 @@ function PRReviewCard(props: {
                 min="1"
                 max="60"
                 class="px-2 py-1.5 rounded-md border border-border-base bg-surface-inset text-text-base text-12-regular focus:outline-none focus:border-border-strong"
-                value={pollInterval()}
-                onInput={(e) => setPollInterval(Number(e.currentTarget.value) || 10)}
+                value={pollIntervalStr()}
+                onInput={(e) => setPollIntervalStr(e.currentTarget.value)}
               />
             </div>
             <div class="flex flex-col gap-1">
@@ -284,8 +287,8 @@ function PRReviewCard(props: {
                 min="1"
                 max="100"
                 class="px-2 py-1.5 rounded-md border border-border-base bg-surface-inset text-text-base text-12-regular focus:outline-none focus:border-border-strong"
-                value={maxCycles()}
-                onInput={(e) => setMaxCycles(Number(e.currentTarget.value) || 20)}
+                value={maxCyclesStr()}
+                onInput={(e) => setMaxCyclesStr(e.currentTarget.value)}
               />
             </div>
           </div>
@@ -364,18 +367,6 @@ export function WorkflowPanel(props: { onStatusChange?: () => void }) {
         {(wf) => (
           <Show when={wf.id === "task-mode"}>
             <TaskModeCard
-              status={statuses()[wf.id]}
-              sdkUrl={sdk.url}
-              directory={sdk.directory}
-              onStatusChange={handleStatusChange}
-            />
-          </Show>
-        )}
-      </For>
-      <For each={workflows()}>
-        {(wf) => (
-          <Show when={wf.id === "pr-review"}>
-            <PRReviewCard
               status={statuses()[wf.id]}
               sdkUrl={sdk.url}
               directory={sdk.directory}

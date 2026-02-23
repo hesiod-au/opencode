@@ -28,13 +28,15 @@ export namespace PRReviewWorkflow {
     running: boolean
     phase?: Phase
     phaseDetail?: string
-    parentSessionId?: string
+    orchestratorSessionId?: string
     startedAt: number
     completedAt?: number
     prNumber?: number
     cycleCount: number
     lastCommitSha?: string
     abortController: AbortController
+    progressLog: Array<{ message: string; timestamp: number }>
+    sessionIds: string[]
     stats: {
       inputTokens: number
       outputTokens: number
@@ -58,12 +60,45 @@ export namespace PRReviewWorkflow {
     })
   }
 
+  async function logToSession(text: string): Promise<void> {
+    if (!state?.orchestratorSessionId) return
+    try {
+      const agent = await Agent.get("build")
+      const model = agent?.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
+      const messageID = Identifier.ascending("message")
+      const partID = Identifier.ascending("part")
+      await Session.updateMessage({
+        id: messageID,
+        sessionID: state.orchestratorSessionId,
+        role: "user",
+        time: { created: Date.now() },
+        agent: "build",
+        model,
+      })
+      await Session.updatePart({
+        id: partID,
+        sessionID: state.orchestratorSessionId,
+        messageID,
+        type: "text",
+        text,
+        synthetic: true,
+      })
+    } catch (err) {
+      log.error("logToSession failed", { error: err })
+    }
+  }
+
   function progress(message: string) {
     log.info("progress", { message })
+    if (state) {
+      state.progressLog.push({ message, timestamp: Date.now() })
+      if (state.progressLog.length > 100) state.progressLog.shift()
+    }
     Bus.publish(WorkflowEvent.Progress, {
       workflowId: "pr-review",
       message,
     })
+    logToSession(message).catch((err) => log.error("logToSession error", { error: err }))
   }
 
   async function detectTestCommand(): Promise<string | undefined> {
@@ -119,12 +154,9 @@ export namespace PRReviewWorkflow {
     }
   }
 
-  async function runFixAgent(
-    comments: any[],
-    parentSessionId: string | undefined,
-  ): Promise<{ success: boolean; sessionId: string }> {
+  async function runFixAgent(comments: any[]): Promise<{ success: boolean; sessionId: string }> {
     const fixSession = await Session.create({
-      parentID: parentSessionId,
+      parentID: state?.orchestratorSessionId,
       title: `PR Review Fix — Cycle ${state?.cycleCount ?? 0}`,
     })
 
@@ -165,6 +197,7 @@ ${commentText}
       parts: [{ type: "text", text: prompt }],
     })
 
+    if (state) state.sessionIds.push(fixSession.id)
     return { success: true, sessionId: fixSession.id }
   }
 
@@ -181,18 +214,25 @@ ${commentText}
       const config = await Config.get()
       const prConfig = config.prReview
 
+      // Create an orchestrator session to track progress
+      const orchestratorSession = await Session.create({
+        title: "PR Review",
+      })
+
       state = {
         running: true,
-        parentSessionId: options.parentSessionId,
+        orchestratorSessionId: orchestratorSession.id,
         startedAt: Date.now(),
         cycleCount: 0,
         abortController: new AbortController(),
+        progressLog: [],
+        sessionIds: [],
         stats: { inputTokens: 0, outputTokens: 0, cost: 0, modifiedFiles: [] },
       }
 
       Bus.publish(WorkflowEvent.Started, {
         workflowId: "pr-review",
-        parentSessionId: options.parentSessionId,
+        parentSessionId: orchestratorSession.id,
       })
 
       // Resolve PR number
@@ -208,7 +248,7 @@ ${commentText}
 
       // Run the main loop
       const maxCycles = prConfig?.maxCycles ?? 20
-      const pollMinutes = prConfig?.pollIntervalMinutes ?? 10
+      const pollMinutes = prConfig?.pollIntervalMinutes ?? 2
       const reviewComment = prConfig?.reviewRequestComment ?? "@codex review"
 
       try {
@@ -241,7 +281,7 @@ ${commentText}
         running: state?.running ?? false,
         phase: state?.phase,
         phaseDetail: state?.phaseDetail,
-        parentSessionId: state?.parentSessionId,
+        parentSessionId: state?.orchestratorSessionId,
         startedAt: state?.startedAt,
         completedAt: state?.completedAt,
         stats: state?.stats,
@@ -249,6 +289,9 @@ ${commentText}
           prNumber: state?.prNumber,
           cycleCount: state?.cycleCount,
           lastCommitSha: state?.lastCommitSha,
+          progressLog: state?.progressLog ?? [],
+          sessionIds: state?.sessionIds ?? [],
+          orchestratorSessionId: state?.orchestratorSessionId,
         },
       }
     },
@@ -309,7 +352,7 @@ ${commentText}
       setPhase("fixing", `${comments.length} comments`)
       progress(`Running agent to address ${comments.length} comment(s)...`)
 
-      const fixResult = await runFixAgent(comments, state.parentSessionId).catch((err) => {
+      const fixResult = await runFixAgent(comments).catch((err) => {
         log.error("fix agent failed", { error: err })
         return { success: false, sessionId: "" }
       })
@@ -340,7 +383,7 @@ ${commentText}
             progress(`Tests failed (attempt ${attempt}/${maxTestRetries}), running fix agent...`)
             // Feed test output to the fix agent
             const testFixSession = await Session.create({
-              parentID: state.parentSessionId,
+              parentID: state.orchestratorSessionId,
               title: `Test Fix — Cycle ${cycle}, Attempt ${attempt}`,
             })
 

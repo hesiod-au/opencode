@@ -72,6 +72,12 @@ export function SessionHeader() {
     tabs().setActive("tasks")
   }
 
+  const openPRReview = () => {
+    view().reviewPanel.open()
+    tabs().open("pr-review")
+    tabs().setActive("pr-review")
+  }
+
   const openReview = () => {
     view().reviewPanel.open()
     tabs().setActive("review")
@@ -340,6 +346,11 @@ export function SessionHeader() {
                 <Tooltip value="Tasks" placement="bottom" class="hidden md:block shrink-0">
                   <Button variant="ghost" class="size-6 p-0" onClick={openTasks}>
                     <Icon name="checklist" size="small" class="icon-base" />
+                  </Button>
+                </Tooltip>
+                <Tooltip value="PR Review" placement="bottom" class="hidden md:block shrink-0">
+                  <Button variant="ghost" class="size-6 p-0" onClick={openPRReview}>
+                    <Icon name="branch" size="small" class="icon-base" />
                   </Button>
                 </Tooltip>
                 <Show when={params.id}>
