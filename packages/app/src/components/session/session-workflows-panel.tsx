@@ -28,7 +28,7 @@ function uniqueTaskName(branch: string, existing: string[]) {
     .replace(/^-|-$/g, "")
     .toLowerCase()
   if (!existing.includes(base)) return base
-  let i = 2
+  let i = 1
   while (existing.includes(`${base}-${i}`)) i++
   return `${base}-${i}`
 }
