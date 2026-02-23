@@ -71,6 +71,18 @@ export const ProjectRoutes = lazy(() =>
         },
       }),
       async (c) => {
+        const directory = c.req.query("directory")
+        if (directory) {
+          const { $ } = await import("bun")
+          const branch = await $`git rev-parse --abbrev-ref HEAD`
+            .quiet()
+            .nothrow()
+            .cwd(directory)
+            .text()
+            .then((x) => x.trim() || null)
+            .catch(() => null)
+          return c.json({ branch })
+        }
         const branch = await Vcs.branch()
         return c.json({ branch: branch ?? null })
       },

@@ -48,7 +48,7 @@ export function TaskModeCard(props: {
   createEffect(async () => {
     try {
       const [branchRes, foldersRes] = await Promise.all([
-        fetch(`${props.sdkUrl}/project/branch`),
+        fetch(`${props.sdkUrl}/project/branch?directory=${encodeURIComponent(props.directory)}`),
         fetch(`${props.sdkUrl}/taskmode/folders?directory=${encodeURIComponent(props.directory)}`),
       ])
       const branch = branchRes.ok ? ((await branchRes.json()) as { branch: string | null }).branch : null
@@ -57,10 +57,10 @@ export function TaskModeCard(props: {
         const data = (await foldersRes.json()) as { folders: TaskFolder[] }
         data.folders.forEach((f) => existingNames.push(f.name))
       }
-      const base = branch ?? "main"
+      const base = branch ?? "default"
       setTaskName(uniqueTaskName(base, existingNames))
     } catch {
-      setTaskName("my-tasks")
+      setTaskName("default")
     }
   })
 
