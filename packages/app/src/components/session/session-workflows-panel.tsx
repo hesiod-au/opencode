@@ -194,7 +194,8 @@ function PRReviewCard(props: {
   const handleStart = async () => {
     setStarting(true)
     try {
-      const configRes = await fetch(`${props.sdkUrl}/config`, {
+      const dirParam = `directory=${encodeURIComponent(props.directory)}`
+      const configRes = await fetch(`${props.sdkUrl}/config?${dirParam}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -207,7 +208,7 @@ function PRReviewCard(props: {
       })
       if (!configRes.ok) throw new Error("Failed to update PR review config")
 
-      const startRes = await fetch(`${props.sdkUrl}/workflow/pr-review/start`, {
+      const startRes = await fetch(`${props.sdkUrl}/workflow/pr-review/start?${dirParam}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -227,7 +228,9 @@ function PRReviewCard(props: {
   const handleStop = async () => {
     setStopping(true)
     try {
-      const res = await fetch(`${props.sdkUrl}/workflow/pr-review/stop`, { method: "POST" })
+      const res = await fetch(`${props.sdkUrl}/workflow/pr-review/stop?directory=${encodeURIComponent(props.directory)}`, {
+        method: "POST",
+      })
       if (!res.ok) throw new Error("Failed to stop PR review workflow")
       showToast({ title: "PR review workflow stopped", variant: "success" })
       props.onStatusChange?.()
