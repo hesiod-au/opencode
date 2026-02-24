@@ -74,6 +74,7 @@ export namespace Orchestrator {
   }
 
   let state: OrchestratorState | null = null
+  let lastStopReason: string | null = null
 
   function setPhase(phase: OrchestratorPhase, detail?: string): void {
     if (!state) return
@@ -723,6 +724,8 @@ The E2E test validates that all components work together correctly. Focus on int
       return
     }
 
+    lastStopReason = null
+
     const config = await Config.get()
     const taskModeConfig = config.taskMode
 
@@ -1009,6 +1012,8 @@ The E2E test validates that all components work together correctly. Focus on int
     // Save final state with completion info (don't clear - needed for stats display)
     await saveState()
 
+    lastStopReason = reason
+
     Bus.publish(TaskModeEvent.OrchestratorStopped, {
       taskListPath: paths.taskListPath,
       reason,
@@ -1042,6 +1047,7 @@ The E2E test validates that all components work together correctly. Focus on int
     completedAt?: number
     phase?: OrchestratorPhase
     phaseDetail?: string
+    stopReason?: string
     stats?: {
       inputTokens: number
       outputTokens: number
@@ -1058,6 +1064,7 @@ The E2E test validates that all components work together correctly. Focus on int
       completedAt: state?.completedAt,
       phase: state?.phase,
       phaseDetail: state?.phaseDetail,
+      stopReason: !state ? (lastStopReason ?? undefined) : undefined,
       stats: state
         ? {
             inputTokens: state.stats.inputTokens,

@@ -45,6 +45,7 @@ import {
   SessionContextTab,
   SessionTasksTab,
   SessionPRReviewTab,
+  SessionTestConfigTab,
   SortableTab,
   FileVisual,
   SortableTerminalTab,
@@ -1019,10 +1020,11 @@ function PageContent() {
   const contextOpen = createMemo(() => tabs().active() === "context" || tabs().all().includes("context"))
   const tasksOpen = createMemo(() => tabs().active() === "tasks" || tabs().all().includes("tasks"))
   const prReviewOpen = createMemo(() => tabs().active() === "pr-review" || tabs().all().includes("pr-review"))
+  const testConfigOpen = createMemo(() => tabs().active() === "test-config" || tabs().all().includes("test-config"))
   const openedTabs = createMemo(() =>
     tabs()
       .all()
-      .filter((tab) => tab !== "context" && tab !== "tasks" && tab !== "pr-review" && tab !== "review"),
+      .filter((tab) => tab !== "context" && tab !== "tasks" && tab !== "pr-review" && tab !== "test-config" && tab !== "review"),
   )
 
   const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
@@ -1031,7 +1033,7 @@ function PageContent() {
   const showTabs = createMemo(
     () =>
       view().reviewPanel.opened() &&
-      (hasReview() || tabs().all().length > 0 || contextOpen() || tasksOpen() || prReviewOpen()),
+      (hasReview() || tabs().all().length > 0 || contextOpen() || tasksOpen() || prReviewOpen() || testConfigOpen()),
   )
 
   const fileTreeTab = () => layout.fileTree.tab()
@@ -1295,6 +1297,7 @@ function PageContent() {
     if (active === "context") return "context"
     if (active === "tasks") return "tasks"
     if (active === "pr-review") return "pr-review"
+    if (active === "test-config") return "test-config"
     if (active === "review" && reviewTab()) return "review"
     if (active && file.pathFromTab(active)) return normalizeTab(active)
 
@@ -1303,6 +1306,7 @@ function PageContent() {
     if (contextOpen()) return "context"
     if (tasksOpen()) return "tasks"
     if (prReviewOpen()) return "pr-review"
+    if (testConfigOpen()) return "test-config"
     if (reviewTab() && hasReview()) return "review"
     return "empty"
   })
@@ -1316,7 +1320,7 @@ function PageContent() {
   createEffect(() => {
     if (!layout.ready()) return
     if (tabs().active()) return
-    if (openedTabs().length === 0 && !contextOpen() && !tasksOpen() && !prReviewOpen() && !(reviewTab() && hasReview())) return
+    if (openedTabs().length === 0 && !contextOpen() && !tasksOpen() && !prReviewOpen() && !testConfigOpen() && !(reviewTab() && hasReview())) return
 
     const next = activeTab()
     if (next === "empty") return
@@ -1918,6 +1922,23 @@ function PageContent() {
                         </div>
                       </Tabs.Trigger>
                     </Show>
+                    <Show when={testConfigOpen()}>
+                      <Tabs.Trigger
+                        value="test-config"
+                        closeButton={
+                          <Tooltip value="Close tab" placement="bottom">
+                            <IconButton icon="close" variant="ghost" onClick={() => tabs().close("test-config")} />
+                          </Tooltip>
+                        }
+                        hideCloseButton
+                        onMiddleClick={() => tabs().close("test-config")}
+                      >
+                        <div class="flex items-center gap-2">
+                          <Icon name="settings-gear" size="small" />
+                          <div>Test Config</div>
+                        </div>
+                      </Tabs.Trigger>
+                    </Show>
                     <SortableProvider ids={openedTabs()}>
                       <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
                     </SortableProvider>
@@ -1989,6 +2010,15 @@ function PageContent() {
                     <Show when={activeTab() === "pr-review"}>
                       <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
                         <SessionPRReviewTab />
+                      </div>
+                    </Show>
+                  </Tabs.Content>
+                </Show>
+                <Show when={testConfigOpen()}>
+                  <Tabs.Content value="test-config" class="flex flex-col h-full overflow-hidden contain-strict">
+                    <Show when={activeTab() === "test-config"}>
+                      <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
+                        <SessionTestConfigTab />
                       </div>
                     </Show>
                   </Tabs.Content>

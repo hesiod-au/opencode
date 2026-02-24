@@ -78,6 +78,12 @@ export function SessionHeader() {
     tabs().setActive("pr-review")
   }
 
+  const openTestConfig = () => {
+    view().reviewPanel.open()
+    tabs().open("test-config")
+    tabs().setActive("test-config")
+  }
+
   const openReview = () => {
     view().reviewPanel.open()
     tabs().setActive("review")
@@ -351,6 +357,11 @@ export function SessionHeader() {
                 <Tooltip value="PR Review" placement="bottom" class="hidden md:block shrink-0">
                   <Button variant="ghost" class="size-6 p-0" onClick={openPRReview}>
                     <Icon name="branch" size="small" class="icon-base" />
+                  </Button>
+                </Tooltip>
+                <Tooltip value="Test Config" placement="bottom" class="hidden md:block shrink-0">
+                  <Button variant="ghost" class="size-6 p-0" onClick={openTestConfig}>
+                    <Icon name="settings-gear" size="small" class="icon-base" />
                   </Button>
                 </Tooltip>
                 <Show when={params.id}>

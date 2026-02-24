@@ -14,6 +14,7 @@ interface TaskModeStatus {
   activeTasks: number
   phase?: string
   phaseDetail?: string
+  stopReason?: string
   taskList?: {
     title?: string
     description?: string
@@ -75,6 +76,7 @@ export function SessionTasksTab() {
   const [creatingPR, setCreatingPR] = createSignal(false)
   const [editingTaskId, setEditingTaskId] = createSignal<string | null>(null)
   const [editingTitle, setEditingTitle] = createSignal("")
+  const [retryingErrors, setRetryingErrors] = createSignal(false)
 
   const fetchStatus = async () => {
     try {
@@ -281,6 +283,60 @@ export function SessionTasksTab() {
   const cancelEditing = () => {
     setEditingTaskId(null)
     setEditingTitle("")
+  }
+
+  const hasErroredTasks = createMemo(() => !status()?.orchestratorRunning && (status()?.counts?.error ?? 0) > 0)
+
+  const erroredTaskIds = createMemo(() => {
+    if (!hasErroredTasks()) return []
+    return status()?.taskList?.tasks.filter((t) => t.status === "error").map((t) => t.id) ?? []
+  })
+
+  const handleRetryErrored = async () => {
+    setRetryingErrors(true)
+    try {
+      for (const id of erroredTaskIds()) {
+        await updateTask(id, { status: "todo" })
+      }
+      const response = await fetch(`${sdk.url}/taskmode/start?directory=${encodeURIComponent(sdk.directory)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      if (!response.ok) throw new Error("Failed to start orchestrator")
+      await fetchStatus()
+      showToast({ title: "Retrying errored tasks", variant: "success" })
+    } catch (err: any) {
+      showToast({ title: "Failed to retry", description: err.message, variant: "error" })
+    } finally {
+      setRetryingErrors(false)
+    }
+  }
+
+  const handleMarkAllDone = async () => {
+    try {
+      for (const id of erroredTaskIds()) {
+        await updateTask(id, { status: "done" })
+      }
+      showToast({ title: "All errored tasks marked done", variant: "success" })
+    } catch (err: any) {
+      showToast({ title: "Failed to mark tasks done", description: err.message, variant: "error" })
+    }
+  }
+
+  const handleRestartOrchestrator = async () => {
+    try {
+      const response = await fetch(`${sdk.url}/taskmode/start?directory=${encodeURIComponent(sdk.directory)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      if (!response.ok) throw new Error("Failed to start orchestrator")
+      await fetchStatus()
+      showToast({ title: "Orchestrator restarted", variant: "success" })
+    } catch (err: any) {
+      showToast({ title: "Failed to restart", description: err.message, variant: "error" })
+    }
   }
 
   const canEdit = () => !status()?.orchestratorRunning
@@ -642,6 +698,48 @@ export function SessionTasksTab() {
                 <span class="text-12-regular text-text-base">
                   {status()?.activeTasks} task{status()!.activeTasks > 1 ? "s" : ""} currently running
                 </span>
+              </div>
+            </Show>
+
+            {/* Error Recovery Banner */}
+            <Show when={hasErroredTasks()}>
+              <div class="flex flex-col gap-3 p-4 rounded-md border border-syntax-error/30 bg-syntax-error/5">
+                <div class="flex items-center gap-2">
+                  <Icon name="circle-x" size="small" class="text-syntax-error" />
+                  <span class="text-14-medium text-text-strong">
+                    Task mode stopped with {status()?.counts?.error} errored task
+                    {(status()?.counts?.error ?? 0) > 1 ? "s" : ""}
+                  </span>
+                </div>
+                <Show when={status()?.stopReason}>
+                  <span class="text-12-regular text-text-weak">Reason: {status()?.stopReason}</span>
+                </Show>
+                <div class="flex items-center gap-2 pt-2 border-t border-syntax-error/20">
+                  <button
+                    class="flex items-center gap-2 px-3 py-1.5 rounded-md bg-syntax-error/10 text-syntax-error hover:bg-syntax-error/20 text-12-medium border border-syntax-error/30 disabled:opacity-50"
+                    onClick={handleRetryErrored}
+                    disabled={retryingErrors()}
+                  >
+                    <Show when={retryingErrors()} fallback={<Icon name="play" size="small" />}>
+                      <Icon name="settings-gear" size="small" class="animate-spin" />
+                    </Show>
+                    Retry Errored Tasks
+                  </button>
+                  <button
+                    class="flex items-center gap-2 px-3 py-1.5 rounded-md bg-syntax-success/10 text-syntax-success hover:bg-syntax-success/20 text-12-medium border border-syntax-success/30"
+                    onClick={handleMarkAllDone}
+                  >
+                    <Icon name="check" size="small" />
+                    Mark All Done
+                  </button>
+                  <button
+                    class="flex items-center gap-2 px-3 py-1.5 rounded-md bg-surface-base text-text-base hover:bg-surface-raised-base-hover text-12-medium border border-border-base"
+                    onClick={handleRestartOrchestrator}
+                  >
+                    <Icon name="play" size="small" />
+                    Restart Orchestrator
+                  </button>
+                </div>
               </div>
             </Show>
 

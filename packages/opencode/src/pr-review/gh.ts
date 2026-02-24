@@ -74,43 +74,28 @@ export namespace GH {
       return []
     }
 
-    // Get review comments (on code)
+    // Only fetch review comments (code-level comments with diff_hunk/path).
+    // Issue comments (e.g. "@codex review") are not actionable review feedback
+    // and should not trigger fix cycles.
     const reviewResult = await exec(["api", `repos/{owner}/{repo}/pulls/${prNumber}/comments`, "--jq", "."])
-
-    // Get issue comments (general PR comments)
-    const issueResult = await exec(["api", `repos/{owner}/{repo}/issues/${prNumber}/comments`, "--jq", "."])
 
     const comments: ReviewComment[] = []
 
     if (reviewResult.exitCode === 0 && reviewResult.stdout) {
       const reviewComments = JSON.parse(reviewResult.stdout) as any[]
       for (const c of reviewComments) {
-        if (new Date(c.updated_at) > new Date(commitTimestamp)) {
-          comments.push({
-            id: c.id,
-            body: c.body,
-            path: c.path,
-            line: c.line,
-            user: { login: c.user.login },
-            createdAt: c.created_at,
-            updatedAt: c.updated_at,
-          })
-        }
-      }
-    }
-
-    if (issueResult.exitCode === 0 && issueResult.stdout) {
-      const issueComments = JSON.parse(issueResult.stdout) as any[]
-      for (const c of issueComments) {
-        if (new Date(c.updated_at) > new Date(commitTimestamp)) {
-          comments.push({
-            id: c.id,
-            body: c.body,
-            user: { login: c.user.login },
-            createdAt: c.created_at,
-            updatedAt: c.updated_at,
-          })
-        }
+        if (new Date(c.updated_at) <= new Date(commitTimestamp)) continue
+        // Only include comments that reference a specific file with a code snippet
+        if (!c.path || !c.diff_hunk) continue
+        comments.push({
+          id: c.id,
+          body: c.body,
+          path: c.path,
+          line: c.line ?? c.original_line,
+          user: { login: c.user.login },
+          createdAt: c.created_at,
+          updatedAt: c.updated_at,
+        })
       }
     }
 

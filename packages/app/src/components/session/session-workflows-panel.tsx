@@ -175,6 +175,112 @@ export function TaskModeCard(props: {
   )
 }
 
+function TestConfigCard(props: {
+  status: WorkflowStatus | undefined
+  sdkUrl: string
+  directory: string
+  onStatusChange?: () => void
+  onSessionCreated?: (sessionId: string) => void
+}) {
+  const [starting, setStarting] = createSignal(false)
+  const [stopping, setStopping] = createSignal(false)
+
+  const handleStart = async () => {
+    setStarting(true)
+    try {
+      const dirParam = `directory=${encodeURIComponent(props.directory)}`
+      const startRes = await fetch(`${props.sdkUrl}/workflow/test-config/start?${dirParam}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      if (!startRes.ok) throw new Error("Failed to start test config workflow")
+      const startData = (await startRes.json()) as { ok: boolean; sessionId?: string }
+      showToast({ title: "Test config workflow started", variant: "success" })
+      props.onStatusChange?.()
+      if (startData.sessionId) props.onSessionCreated?.(startData.sessionId)
+    } catch (err: any) {
+      showToast({ title: "Failed to start test config", description: err.message, variant: "error" })
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  const handleStop = async () => {
+    setStopping(true)
+    try {
+      const res = await fetch(
+        `${props.sdkUrl}/workflow/test-config/stop?directory=${encodeURIComponent(props.directory)}`,
+        { method: "POST" },
+      )
+      if (!res.ok) throw new Error("Failed to stop test config workflow")
+      showToast({ title: "Test config workflow stopped", variant: "success" })
+      props.onStatusChange?.()
+    } catch (err: any) {
+      showToast({ title: "Failed to stop test config", description: err.message, variant: "error" })
+    } finally {
+      setStopping(false)
+    }
+  }
+
+  return (
+    <div class="flex flex-col gap-3 p-4 rounded-md border border-border-base bg-surface-base">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <Icon name="settings-gear" size="small" class="text-text-weak" />
+          <span class="text-13-medium text-text-strong">Test Config</span>
+          <Show when={props.status?.running}>
+            <span class="px-2 py-0.5 rounded-full bg-syntax-info/20 text-syntax-info text-11-medium">
+              {props.status?.phase ?? "running"}
+            </span>
+          </Show>
+        </div>
+      </div>
+
+      <Show
+        when={!props.status?.running}
+        fallback={
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 text-12-regular text-text-weak">
+              <Icon name="settings-gear" size="small" class="animate-spin text-syntax-info" />
+              <span>{props.status?.phase ?? "running"}</span>
+              <Show when={props.status?.phaseDetail}>
+                <span class="text-text-weaker">— {props.status?.phaseDetail}</span>
+              </Show>
+            </div>
+            <button
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-raised-base text-text-base hover:bg-surface-raised-base-hover disabled:opacity-50 text-12-medium border border-border-base"
+              onClick={handleStop}
+              disabled={stopping()}
+            >
+              <Show when={stopping()} fallback={<Icon name="stop" size="small" />}>
+                <Icon name="settings-gear" size="small" class="animate-spin" />
+              </Show>
+              Stop
+            </button>
+          </div>
+        }
+      >
+        <div class="flex flex-col gap-2">
+          <div class="text-12-regular text-text-weak">Analyze project and generate test-config.json</div>
+          <div class="flex justify-end">
+            <button
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-primary text-text-on-primary hover:bg-surface-primary-hover disabled:opacity-50 text-12-medium"
+              onClick={handleStart}
+              disabled={starting()}
+            >
+              <Show when={starting()} fallback={<Icon name="arrow-right" size="small" />}>
+                <Icon name="settings-gear" size="small" class="animate-spin" />
+              </Show>
+              Start
+            </button>
+          </div>
+        </div>
+      </Show>
+    </div>
+  )
+}
+
 function PRReviewCard(props: {
   status: WorkflowStatus | undefined
   sdkUrl: string
@@ -397,6 +503,15 @@ export function WorkflowPanel(props: { onStatusChange?: () => void }) {
             <Show when={wf.activationMode === "start" || wf.activationMode === "both"}>
               <Show when={wf.id === "pr-review"}>
                 <PRReviewCard
+                  status={statuses()[wf.id]}
+                  sdkUrl={sdk.url}
+                  directory={sdk.directory}
+                  onStatusChange={handleStatusChange}
+                  onSessionCreated={navigateToSession}
+                />
+              </Show>
+              <Show when={wf.id === "test-config"}>
+                <TestConfigCard
                   status={statuses()[wf.id]}
                   sdkUrl={sdk.url}
                   directory={sdk.directory}

@@ -194,6 +194,7 @@ ${commentText}
       model: { modelID: model.modelID, providerID: model.providerID },
       agent: agent.name,
       variant: "max",
+      tools: { question: false },
       parts: [{ type: "text", text: prompt }],
     })
 
@@ -398,6 +399,7 @@ ${commentText}
               model: { modelID: model.modelID, providerID: model.providerID },
               agent: agent.name,
               variant: "max",
+              tools: { question: false },
               parts: [
                 {
                   type: "text",
