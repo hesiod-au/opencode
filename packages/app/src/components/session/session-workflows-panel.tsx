@@ -1,5 +1,6 @@
 import { createSignal, createEffect, onCleanup, Show, For } from "solid-js"
 import { useSDK } from "@/context/sdk"
+import { useNavigate, useParams } from "@solidjs/router"
 import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
 
@@ -179,6 +180,7 @@ function PRReviewCard(props: {
   sdkUrl: string
   directory: string
   onStatusChange?: () => void
+  onSessionCreated?: (sessionId: string) => void
 }) {
   const [pollIntervalStr, setPollIntervalStr] = createSignal("2")
   const [maxCyclesStr, setMaxCyclesStr] = createSignal("20")
@@ -205,10 +207,16 @@ function PRReviewCard(props: {
       })
       if (!configRes.ok) throw new Error("Failed to update PR review config")
 
-      const startRes = await fetch(`${props.sdkUrl}/workflow/pr-review/start`, { method: "POST" })
+      const startRes = await fetch(`${props.sdkUrl}/workflow/pr-review/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
       if (!startRes.ok) throw new Error("Failed to start PR review workflow")
+      const startData = (await startRes.json()) as { ok: boolean; sessionId?: string }
       showToast({ title: "PR review workflow started", variant: "success" })
       props.onStatusChange?.()
+      if (startData.sessionId) props.onSessionCreated?.(startData.sessionId)
     } catch (err: any) {
       showToast({ title: "Failed to start PR review", description: err.message, variant: "error" })
     } finally {
@@ -323,8 +331,14 @@ function PRReviewCard(props: {
 
 export function WorkflowPanel(props: { onStatusChange?: () => void }) {
   const sdk = useSDK()
+  const navigate = useNavigate()
+  const params = useParams<{ dir: string }>()
   const [workflows, setWorkflows] = createSignal<WorkflowInfo[]>([])
   const [statuses, setStatuses] = createSignal<Record<string, WorkflowStatus>>({})
+
+  const navigateToSession = (sessionId: string) => {
+    navigate(`/${params.dir}/session/${sessionId}`)
+  }
 
   const fetchAll = async () => {
     try {
@@ -384,6 +398,7 @@ export function WorkflowPanel(props: { onStatusChange?: () => void }) {
                   sdkUrl={sdk.url}
                   directory={sdk.directory}
                   onStatusChange={handleStatusChange}
+                  onSessionCreated={navigateToSession}
                 />
               </Show>
             </Show>

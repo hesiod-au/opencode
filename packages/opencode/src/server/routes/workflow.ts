@@ -128,7 +128,7 @@ export const WorkflowRoutes = lazy(() =>
             description: "Workflow started",
             content: {
               "application/json": {
-                schema: resolver(z.object({ ok: z.boolean() })),
+                schema: resolver(z.object({ ok: z.boolean(), sessionId: z.string().optional() })),
               },
             },
           },
@@ -154,7 +154,8 @@ export const WorkflowRoutes = lazy(() =>
         const body = c.req.valid("json")
         log.info("starting workflow", { id: workflow.id, parentSessionId: body.parentSessionId })
         await workflow.start(body)
-        return c.json({ ok: true })
+        const status = workflow.getStatus()
+        return c.json({ ok: true, sessionId: status.parentSessionId })
       },
     )
     .post(
