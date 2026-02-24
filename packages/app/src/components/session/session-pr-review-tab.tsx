@@ -47,9 +47,11 @@ export function SessionPRReviewTab() {
   const pollInterval = () => Math.max(1, parseInt(pollIntervalStr(), 10) || 2)
   const maxCycles = () => Math.max(1, parseInt(maxCyclesStr(), 10) || 20)
 
+  const dirParam = `directory=${encodeURIComponent(sdk.directory)}`
+
   const fetchStatus = async () => {
     try {
-      const r = await fetch(`${sdk.url}/workflow/pr-review/status`)
+      const r = await fetch(`${sdk.url}/workflow/pr-review/status?${dirParam}`)
       if (r.ok) setStatus(await r.json())
     } catch {
       // ignore
@@ -76,7 +78,7 @@ export function SessionPRReviewTab() {
   const handleStart = async () => {
     setStarting(true)
     try {
-      const configRes = await fetch(`${sdk.url}/config`, {
+      const configRes = await fetch(`${sdk.url}/config?${dirParam}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -88,10 +90,16 @@ export function SessionPRReviewTab() {
         }),
       })
       if (!configRes.ok) throw new Error("Failed to update PR review config")
-      const startRes = await fetch(`${sdk.url}/workflow/pr-review/start`, { method: "POST" })
+      const startRes = await fetch(`${sdk.url}/workflow/pr-review/start?${dirParam}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
       if (!startRes.ok) throw new Error("Failed to start PR review workflow")
+      const startData = (await startRes.json()) as { ok: boolean; sessionId?: string }
       showToast({ title: "PR review started", variant: "success" })
       await fetchStatus()
+      if (startData.sessionId) navigateToSession(startData.sessionId)
     } catch (err: any) {
       showToast({ title: "Failed to start PR review", description: err.message, variant: "error" })
     } finally {
@@ -102,7 +110,7 @@ export function SessionPRReviewTab() {
   const handleStop = async () => {
     setStopping(true)
     try {
-      const res = await fetch(`${sdk.url}/workflow/pr-review/stop`, { method: "POST" })
+      const res = await fetch(`${sdk.url}/workflow/pr-review/stop?${dirParam}`, { method: "POST" })
       if (!res.ok) throw new Error("Failed to stop PR review workflow")
       showToast({ title: "PR review stopped", variant: "success" })
       await fetchStatus()
