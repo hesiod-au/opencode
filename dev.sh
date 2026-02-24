@@ -18,6 +18,12 @@ if [ -s "$NVM_DIR/nvm.sh" ]; then
     echo "Using Node $(node --version)"
 fi
 
+OC_PASS_FILE="$HOME/.oc-pass.json"
+if [ -f "$OC_PASS_FILE" ]; then
+    OPENCODE_SERVER_PASSWORD=$(bun -e "const f=require('fs');const j=JSON.parse(f.readFileSync('$OC_PASS_FILE','utf8'));process.stdout.write(j.password??'')")
+    export OPENCODE_SERVER_PASSWORD
+fi
+
 BACKEND_HOST="${BACKEND_HOST:-0.0.0.0}"
 BACKEND_PORT="${BACKEND_PORT:-4096}"
 FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
