@@ -34,6 +34,7 @@ const WorkflowInfoSchema = z
     name: z.string(),
     running: z.boolean(),
     hasConfirm: z.boolean(),
+    activationMode: z.enum(["start", "enable", "both"]),
   })
   .meta({ ref: "WorkflowInfo" })
 
@@ -61,6 +62,7 @@ export const WorkflowRoutes = lazy(() =>
           name: w.name,
           running: w.isRunning(),
           hasConfirm: !!w.confirmPlan,
+          activationMode: w.activationMode,
         }))
         return c.json(workflows)
       },

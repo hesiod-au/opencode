@@ -8,6 +8,7 @@ export namespace TaskWorkflow {
   export const definition: Workflow.Definition<Orchestrator.OrchestratorPhase> = {
     id: "task",
     name: "Task Mode",
+    activationMode: "enable",
 
     async start(options) {
       await Orchestrator.start(options)

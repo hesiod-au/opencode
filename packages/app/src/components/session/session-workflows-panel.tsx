@@ -8,6 +8,7 @@ interface WorkflowInfo {
   name: string
   running: boolean
   hasConfirm: boolean
+  activationMode: "start" | "enable" | "both"
 }
 
 interface WorkflowStatus {
@@ -164,7 +165,7 @@ export function TaskModeCard(props: {
               <Show when={starting()} fallback={<Icon name="arrow-right" size="small" />}>
                 <Icon name="settings-gear" size="small" class="animate-spin" />
               </Show>
-              Start
+              Enable
             </button>
           </div>
         </div>
@@ -365,14 +366,28 @@ export function WorkflowPanel(props: { onStatusChange?: () => void }) {
       <div class="text-12-medium text-text-weak uppercase tracking-wide">Workflows</div>
       <For each={workflows()}>
         {(wf) => (
-          <Show when={wf.id === "task-mode"}>
-            <TaskModeCard
-              status={statuses()[wf.id]}
-              sdkUrl={sdk.url}
-              directory={sdk.directory}
-              onStatusChange={handleStatusChange}
-            />
-          </Show>
+          <>
+            <Show when={wf.activationMode === "enable" || wf.activationMode === "both"}>
+              <Show when={wf.id === "task"}>
+                <TaskModeCard
+                  status={statuses()[wf.id]}
+                  sdkUrl={sdk.url}
+                  directory={sdk.directory}
+                  onStatusChange={handleStatusChange}
+                />
+              </Show>
+            </Show>
+            <Show when={wf.activationMode === "start" || wf.activationMode === "both"}>
+              <Show when={wf.id === "pr-review"}>
+                <PRReviewCard
+                  status={statuses()[wf.id]}
+                  sdkUrl={sdk.url}
+                  directory={sdk.directory}
+                  onStatusChange={handleStatusChange}
+                />
+              </Show>
+            </Show>
+          </>
         )}
       </For>
     </div>

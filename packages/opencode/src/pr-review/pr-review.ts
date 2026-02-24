@@ -204,6 +204,7 @@ ${commentText}
   export const definition: Workflow.Definition<Phase> = {
     id: "pr-review",
     name: "PR Review",
+    activationMode: "start",
 
     async start(options) {
       if (state?.running) {

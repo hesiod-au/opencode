@@ -1,7 +1,10 @@
 export namespace Workflow {
+  export type ActivationMode = "start" | "enable" | "both"
+
   export interface Definition<Phase extends string = string> {
     id: string
     name: string
+    activationMode: ActivationMode
     start(options: StartOptions): Promise<void>
     stop(reason: StopReason): Promise<void>
     getStatus(): Status<Phase>
