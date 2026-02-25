@@ -2,6 +2,7 @@ import { Bus } from "../bus"
 import { WorkflowEvent } from "../workflow/events"
 import { TaskModeEvent } from "./events"
 import { Orchestrator } from "./orchestrator"
+import z from "zod"
 import type { Workflow } from "../workflow/workflow"
 
 export namespace TaskWorkflow {
@@ -9,6 +10,13 @@ export namespace TaskWorkflow {
     id: "task",
     name: "Task Mode",
     activationMode: "enable",
+    recursive: false,
+    toolInvocable: {
+      description: "Run the task mode workflow for coordinated review or planning work.",
+      parameters: z.object({
+        userPrompt: z.string().optional().describe("Instructions for the task-mode workflow session."),
+      }),
+    },
 
     async start(options) {
       await Orchestrator.start(options)

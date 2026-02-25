@@ -35,4 +35,22 @@ export namespace WorkflowEvent {
       message: z.string(),
     }),
   )
+
+  export const StepStarted = BusEvent.define(
+    "workflow.step_started",
+    z.object({
+      workflowId: z.string(),
+      stepId: z.string(),
+      stepIndex: z.number(),
+    }),
+  )
+
+  export const StepCompleted = BusEvent.define(
+    "workflow.step_completed",
+    z.object({
+      workflowId: z.string(),
+      stepId: z.string(),
+      stepIndex: z.number(),
+    }),
+  )
 }

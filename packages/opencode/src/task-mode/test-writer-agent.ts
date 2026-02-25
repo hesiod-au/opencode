@@ -52,6 +52,7 @@ export namespace TestWriterAgent {
     paths: TaskList.Paths
     parentSessionId?: string
     planningConversation: string
+    disabledTools?: Record<string, false>
   }
 
   export interface TestWriterResult {
@@ -139,6 +140,7 @@ export namespace TestWriterAgent {
         },
         agent: agent.name,
         variant: "max",
+        tools: { question: false, ...options.disabledTools },
         parts: [{ type: "text", text: prompt }],
       })
 

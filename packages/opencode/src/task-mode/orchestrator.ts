@@ -15,6 +15,7 @@ import { Identifier } from "../id/id"
 import { Agent } from "../agent/agent"
 import { Storage } from "../storage/storage"
 import { Snapshot } from "../snapshot"
+import { Workflow } from "../workflow/workflow"
 import fs from "fs/promises"
 import path from "path"
 
@@ -578,6 +579,7 @@ The E2E test validates that all components work together correctly. Focus on int
         },
         agent: agent.name,
         variant: "max",
+        tools: { question: false, ...Workflow.buildDisabledTools({ id: "task", recursive: false }) },
         parts: [{ type: "text", text: prompt }],
       })
 
@@ -921,10 +923,12 @@ The E2E test validates that all components work together correctly. Focus on int
       log.info("no task list found, launching planning agent", { hasUserPrompt: !!options?.userPrompt })
       setPhase("planning")
       await logAction("**Launching planning agent**")
+      const taskDisabledTools = Workflow.buildDisabledTools({ id: "task", recursive: false })
       const planningResult = await PlanningAgent.generatePlan({
         paths,
         parentSessionId: state.parentSessionId,
         userPrompt: options?.userPrompt,
+        disabledTools: taskDisabledTools,
       })
 
       // If planning failed, stop cleanly instead of falling through to runLoop
@@ -948,6 +952,7 @@ The E2E test validates that all components work together correctly. Focus on int
           paths,
           parentSessionId: state.parentSessionId,
           planningConversation,
+          disabledTools: taskDisabledTools,
         })
 
         if (!testWriterResult.success) {
@@ -1334,6 +1339,7 @@ The E2E test validates that all components work together correctly. Focus on int
       taskFilePath,
       paths: state.paths,
       parentSessionId: state.parentSessionId,
+      disabledTools: Workflow.buildDisabledTools({ id: "task", recursive: false }),
     })
 
     state.activeTasks.set(task.id, { sessionId: "", promise })

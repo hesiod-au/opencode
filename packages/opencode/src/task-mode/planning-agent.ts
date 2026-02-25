@@ -55,6 +55,7 @@ export namespace PlanningAgent {
     parentSessionId?: string
     context?: string
     userPrompt?: string
+    disabledTools?: Record<string, false>
   }
 
   export interface PlanningResult {
@@ -94,6 +95,7 @@ export namespace PlanningAgent {
             model: { modelID: model.modelID, providerID: model.providerID },
             agent: agent.name,
             variant: "max",
+            tools: { question: false, ...options.disabledTools },
             parts: [{ type: "text", text: analysisPrompt }],
           })
           return extractResponseText(result)
@@ -165,6 +167,7 @@ export namespace PlanningAgent {
           model: { modelID: model.modelID, providerID: model.providerID },
           agent: agent.name,
           variant: "max",
+          tools: { question: false, ...options.disabledTools },
           parts: [{ type: "text", text: assessmentPrompt }],
         })
         finalPlanText = extractResponseText(assessResult)
@@ -197,6 +200,7 @@ export namespace PlanningAgent {
         userPrompt,
         agent,
         model,
+        disabledTools: options.disabledTools,
       })
 
       return result
@@ -320,6 +324,7 @@ export namespace PlanningAgent {
     userPrompt?: string
     agent: { name: string }
     model: { providerID: string; modelID: string }
+    disabledTools?: Record<string, false>
   }): Promise<void> {
     const {
       plan,
@@ -351,6 +356,7 @@ export namespace PlanningAgent {
         model: { modelID: model.modelID, providerID: model.providerID },
         agent: agent.name,
         variant: "max",
+        tools: { question: false, ...opts.disabledTools },
         parts: [{ type: "text", text: taskWritingPrompt }],
       })
 
@@ -384,6 +390,7 @@ export namespace PlanningAgent {
           model: { modelID: model.modelID, providerID: model.providerID },
           agent: agent.name,
           variant: "max",
+          tools: { question: false, ...opts.disabledTools },
           parts: [{ type: "text", text: continuationPrompt }],
         })
 

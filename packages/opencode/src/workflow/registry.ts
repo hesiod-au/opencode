@@ -1,6 +1,8 @@
 import { Log } from "../util/log"
 import { Config } from "../config/config"
+import type { Tool } from "../tool/tool"
 import type { Workflow } from "./workflow"
+import { WorkflowTool } from "./tool"
 
 export namespace WorkflowRegistry {
   const log = Log.create({ service: "workflow-registry" })
@@ -17,6 +19,13 @@ export namespace WorkflowRegistry {
 
   export function list(): Workflow.Definition[] {
     return Array.from(workflows.values())
+  }
+
+  export function toolInvocableWorkflows(): Tool.Info[] {
+    return Array.from(workflows.values()).flatMap((w) => {
+      const tool = WorkflowTool.fromWorkflow(w)
+      return tool ? [tool] : []
+    })
   }
 
   export async function getActive(): Promise<Workflow.Definition | undefined> {

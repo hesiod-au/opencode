@@ -303,6 +303,7 @@ ${guardrails}
     parentSessionId?: string
     agent?: string
     model?: { providerID: string; modelID: string }
+    disabledTools?: Record<string, false>
   }
 
   export interface TaskAgentResult {
@@ -413,8 +414,8 @@ ${guardrails}
             providerID: model.providerID,
           },
           agent: agent.name,
-          // Disable question tool - sub-tasks should work autonomously without asking the user
-          tools: { question: false },
+          // Disable question tool and workflow tools - sub-tasks should work autonomously
+          tools: { question: false, ...options.disabledTools },
           parts: [{ type: "text", text: prompt }],
         })
 
@@ -550,7 +551,7 @@ ${guardrails}
                   providerID: model.providerID,
                 },
                 agent: agent.name,
-                tools: { question: false },
+                tools: { question: false, ...options.disabledTools },
                 parts: [{ type: "text", text: fixPrompt }],
               })
             }
