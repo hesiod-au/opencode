@@ -15,6 +15,20 @@ export namespace TestConfigWorkflow {
   const log = Log.create({ service: "test-config" })
 
   type Phase = "analyzing" | "generating" | "validating" | "complete"
+  type MethodName = "unit" | "endpoint" | "e2e"
+  type ValidationName = MethodName | "default"
+
+  interface ValidationTarget {
+    name: ValidationName
+    command: string
+    required: boolean
+  }
+
+  interface ValidationPlan {
+    mode: "structured" | "legacy" | "none"
+    runnable: ValidationTarget[]
+    missingRequired: MethodName[]
+  }
 
   interface State {
     running: boolean
@@ -35,6 +49,66 @@ export namespace TestConfigWorkflow {
   }
 
   let state: State | null = null
+
+  function toObject(value: unknown): Record<string, unknown> | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return
+    return value as Record<string, unknown>
+  }
+
+  function toStringValue(value: unknown): string | undefined {
+    if (typeof value !== "string") return
+    const trimmed = value.trim()
+    if (!trimmed) return
+    return trimmed
+  }
+
+  function parseConfig(value: unknown): Record<string, unknown> | undefined {
+    return toObject(value)
+  }
+
+  function parseWarnings(config?: Record<string, unknown>): string[] {
+    if (!config) return []
+    const value = config.warnings
+    if (!Array.isArray(value)) return []
+    return value.flatMap((item) => {
+      const warning = toStringValue(item)
+      return warning ? [warning] : []
+    })
+  }
+
+  export function getValidationPlan(config: Record<string, unknown>): ValidationPlan {
+    const methods = toObject(config.test_methods)
+    if (methods) {
+      const names: MethodName[] = ["unit", "endpoint", "e2e"]
+      const runnable = names.flatMap((name) => {
+        const method = toObject(methods[name])
+        if (!method) return []
+        const command = toStringValue(method.command)
+        if (!command) return []
+        return [{ name, command, required: method.required === true }]
+      })
+      const missingRequired = names.flatMap((name) => {
+        const method = toObject(methods[name])
+        if (!method || method.required !== true) return []
+        return toStringValue(method.command) ? [] : [name]
+      })
+      if (runnable.length > 0 || missingRequired.length > 0) {
+        return { mode: "structured", runnable, missingRequired }
+      }
+    }
+
+    const commands = toObject(config.commands)
+    const fallback = toStringValue(commands?.test)
+    if (fallback) {
+      return {
+        mode: "legacy",
+        runnable: [{ name: "default", command: fallback, required: true }],
+        missingRequired: [],
+      }
+    }
+
+    return { mode: "none", runnable: [], missingRequired: [] }
+  }
 
   function setPhase(phase: Phase, detail?: string) {
     if (!state) return
@@ -105,7 +179,7 @@ export namespace TestConfigWorkflow {
     if (!exists) return undefined
     try {
       const text = await Bun.file(path).text()
-      return JSON.parse(text)
+      return parseConfig(JSON.parse(text))
     } catch {
       return undefined
     }
@@ -243,18 +317,54 @@ Analyze this project to determine the test configuration. Write a \`test-config.
 3. Check for Docker support:
    - If docker-compose.yml or Dockerfile exists, use it
    - If not, propose a minimal Docker image for the detected language
-4. Write the final \`test-config.json\` using the write tool with this schema:
+4. Determine project type:
+   - Use \`web_app\` when the project serves a browser UI.
+   - Use \`api_service\`, \`library\`, \`cli\`, or \`unknown\` otherwise.
+5. Determine test methods:
+   - \`unit\` is always required.
+   - \`endpoint\` is required when API/server endpoints exist.
+   - \`e2e\` is required for \`web_app\` projects, optional otherwise.
+   - E2E must include a runner plus settings/mocks needed to run on command.
+6. Write the final \`test-config.json\` using the write tool with this schema:
 
 \`\`\`json
 {
   "version": 1,
   "language": "<primary language>",
   "framework": "<test framework>",
+  "project_type": "web_app|api_service|library|cli|unknown",
   "docker": {
     "enabled": true,
     "image": "<appropriate base image>",
     "workdir": "/app",
     "setup": ["<install commands>"]
+  },
+  "test_methods": {
+    "unit": {
+      "command": "<unit test command>",
+      "test_file_command": "<single-file unit command with {file} placeholder or null>",
+      "required": true
+    },
+    "endpoint": {
+      "command": "<endpoint/integration test command or null>",
+      "test_file_command": "<single-file endpoint command or null>",
+      "required": true
+    },
+    "e2e": {
+      "command": "<e2e command that can run on demand>",
+      "required": true,
+      "runner": "<playwright|cypress|other>",
+      "settings": {
+        "base_url": "<url used in e2e tests>",
+        "start_command": "<command to start app/services for e2e>",
+        "wait_for": "<readiness url/pattern/command>"
+      },
+      "mocks": {
+        "enabled": true,
+        "strategy": "<mock strategy or null>",
+        "seed_command": "<seed/mock setup command or null>"
+      }
+    }
   },
   "commands": {
     "test": "<full test command>",
@@ -265,11 +375,15 @@ Analyze this project to determine the test configuration. Write a \`test-config.
   "paths": {
     "tests": ["<test file patterns>"],
     "source": ["<source directories>"]
-  }
+  },
+  "warnings": ["<optional actionable warnings>"]
 }
 \`\`\`
 
-Be thorough but concise. Use the actual commands that work for this project.`
+Notes:
+- Keep \`commands\` for compatibility with existing consumers.
+- For non-web projects, set \`test_methods.e2e.required\` to false if not applicable.
+- Use the actual commands that work for this project.`
 
     const agent = await Agent.get("build")
     if (!agent) throw new Error("Build agent not found")
@@ -298,9 +412,12 @@ Be thorough but concise. Use the actual commands that work for this project.`
       return
     }
 
+    const language = toStringValue(config.language)
+    const framework = toStringValue(config.framework)
+
     Bus.publish(TestConfigEvent.AnalysisComplete, {
-      language: (config.language as string) ?? undefined,
-      framework: (config.framework as string) ?? undefined,
+      language,
+      framework,
     })
 
     Bus.publish(TestConfigEvent.ConfigWritten, {
@@ -308,13 +425,13 @@ Be thorough but concise. Use the actual commands that work for this project.`
     })
 
     await addToGitignore()
-    progress(`Config written: language=${config.language}, framework=${config.framework}`)
+    progress(`Config written: language=${language ?? "unknown"}, framework=${framework ?? "unknown"}`)
 
     // Phase 2: Validating
     if (!state?.running) return
 
-    const testCommand = (config.commands as any)?.test
-    if (!testCommand) {
+    const validationPlan = getValidationPlan(config)
+    if (validationPlan.mode === "none") {
       progress("No test command in config. Skipping validation.")
       setPhase("complete")
       state.configContents = config
@@ -324,28 +441,77 @@ Be thorough but concise. Use the actual commands that work for this project.`
       return
     }
 
+    const runnableSummary = validationPlan.runnable
+      .map((item) => `${item.name}:${item.command}`)
+      .join(" | ")
+    const missingSummary = validationPlan.missingRequired.join(", ")
+
     setPhase("validating", "Running tests to verify config")
-    progress(`Validating config by running: ${testCommand}`)
+    if (runnableSummary) {
+      progress(`Validating config by running: ${runnableSummary}`)
+    }
+    if (missingSummary) {
+      progress(`Required test methods missing commands: ${missingSummary}`)
+    }
 
     const validateSession = await Session.create({
       parentID: state.orchestratorSessionId,
       title: "Test Config — Validation",
     })
 
+    const runnableBlock = validationPlan.runnable.length
+      ? validationPlan.runnable
+          .map((item) => `- ${item.name}: ${item.command}${item.required ? " (required)" : " (optional)"}`)
+          .join("\n")
+      : "- none"
+    const missingBlock = validationPlan.missingRequired.length
+      ? validationPlan.missingRequired.map((item) => `- ${item}`).join("\n")
+      : "- none"
+
     const validatePrompt = `# Test Config — Validation
 
 A \`test-config.json\` has been generated for this project. Your job is to validate it works correctly.
 
+## Validation targets from the current config
+
+Runnable methods:
+${runnableBlock}
+
+Required methods missing a command:
+${missingBlock}
+
 ## Steps
 
 1. Read the \`test-config.json\` file
-2. Run the test command from the config using the bash tool
-3. If tests fail:
+2. Ensure method requirements are correct:
+   - \`unit\` must be required.
+   - \`endpoint\` is required only when API/server endpoints are present.
+   - \`e2e\` is required for \`project_type=web_app\`.
+3. Run each required runnable method command in this order when present: unit, endpoint, e2e.
+4. Run optional methods only if they have commands and are feasible.
+5. If a required method is missing a command, update \`test-config.json\` to fill it.
+6. If tests fail:
    - Diagnose the issue (missing dependencies, wrong command, incorrect paths, etc.)
    - Update \`test-config.json\` to fix the problem
-   - Run the test command again
-4. Retry up to 3 times until tests pass
-5. If tests still fail after 3 attempts, leave the best config you can and report what went wrong
+   - Run validation again
+7. Keep a \`validation\` object in \`test-config.json\`:
+
+\`\`\`json
+{
+  "validation": {
+    "unit": { "status": "pass|fail|unknown", "note": "<short detail>" },
+    "endpoint": { "status": "pass|fail|unknown", "note": "<short detail>" },
+    "e2e": { "status": "pass|fail|unknown", "note": "<short detail>" }
+  }
+}
+\`\`\`
+
+8. If required E2E cannot run in this environment (missing browser/runtime/services), do not hard-fail:
+   - keep the best E2E command/settings/mocks
+   - add actionable warning text to the top-level \`warnings\` array
+   - set \`validation.e2e.status\` to \`unknown\` with reason
+9. Retry up to 3 times until all required runnable methods pass, or you reach best effort.
+10. If still not fully passing after retries, keep the best config and clearly document why in \`warnings\` and \`validation\`.
 
 Important: Only modify test-config.json, do NOT modify the project's actual source or test files.`
 
@@ -365,6 +531,10 @@ Important: Only modify test-config.json, do NOT modify the project's actual sour
     setPhase("complete")
     const finalConfig = await readConfig()
     state.configContents = finalConfig ?? config
+    const warnings = parseWarnings(state.configContents)
+    if (warnings.length > 0) {
+      warnings.forEach((warning) => progress(`Warning: ${warning}`))
+    }
     state.completedAt = Date.now()
     progress("Test config complete.")
     await definition.stop("completed")

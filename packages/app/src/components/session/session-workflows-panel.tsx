@@ -262,7 +262,7 @@ function TestConfigCard(props: {
         }
       >
         <div class="flex flex-col gap-2">
-          <div class="text-12-regular text-text-weak">Analyze project and generate test-config.json</div>
+          <div class="text-12-regular text-text-weak">Analyze project and generate unit, endpoint, and e2e test methods</div>
           <div class="flex justify-end">
             <button
               class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-primary text-text-on-primary hover:bg-surface-primary-hover disabled:opacity-50 text-12-medium"

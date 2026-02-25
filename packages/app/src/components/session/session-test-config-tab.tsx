@@ -1,8 +1,52 @@
-import { createSignal, createEffect, onCleanup, Show, For } from "solid-js"
+import { createSignal, createEffect, createMemo, onCleanup, Show, For } from "solid-js"
 import { useSDK } from "@/context/sdk"
 import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useNavigate, useParams } from "@solidjs/router"
+
+interface TestMethodConfig {
+  command?: string
+  test_file_command?: string | null
+  required?: boolean
+  runner?: string
+  settings?: Record<string, unknown>
+  mocks?: Record<string, unknown>
+}
+
+interface TestMethodValidation {
+  status?: string
+  note?: string
+}
+
+interface GeneratedTestConfig {
+  version?: number
+  language?: string
+  framework?: string
+  project_type?: string
+  docker?: {
+    enabled?: boolean
+    image?: string
+  }
+  commands?: {
+    test?: string
+    lint?: string | null
+    typecheck?: string | null
+  }
+  paths?: {
+    tests?: string[]
+  }
+  test_methods?: {
+    unit?: TestMethodConfig
+    endpoint?: TestMethodConfig
+    e2e?: TestMethodConfig
+  }
+  validation?: {
+    unit?: TestMethodValidation
+    endpoint?: TestMethodValidation
+    e2e?: TestMethodValidation
+  }
+  warnings?: string[]
+}
 
 interface TestConfigStatus {
   running: boolean
@@ -13,7 +57,7 @@ interface TestConfigStatus {
     progressLog?: Array<{ message: string; timestamp: number }>
     orchestratorSessionId?: string
     configExists?: boolean
-    config?: Record<string, unknown>
+    config?: GeneratedTestConfig
   }
 }
 
@@ -27,6 +71,17 @@ function formatElapsed(startedAt: number) {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return m > 0 ? `${m}m ${s}s` : `${s}s`
+}
+
+function stringValue(value: unknown) {
+  if (typeof value !== "string") return
+  const trimmed = value.trim()
+  if (!trimmed) return
+  return trimmed
+}
+
+function configValue(map: Record<string, unknown> | undefined, key: string) {
+  return stringValue(map?.[key])
 }
 
 export function SessionTestConfigTab() {
@@ -107,7 +162,22 @@ export function SessionTestConfigTab() {
 
   const progressLog = () => status()?.extra?.progressLog ?? []
   const orchestratorSessionId = () => status()?.extra?.orchestratorSessionId
-  const config = () => status()?.extra?.config as Record<string, unknown> | undefined
+  const config = () => status()?.extra?.config
+
+  const warnings = createMemo(() => {
+    const list = config()?.warnings
+    if (!Array.isArray(list)) return []
+    return list.flatMap((item) => {
+      const warning = stringValue(item)
+      return warning ? [warning] : []
+    })
+  })
+
+  const e2eNeedsAttention = createMemo(() => {
+    const method = config()?.test_methods?.e2e
+    if (!method?.required) return false
+    return config()?.validation?.e2e?.status !== "pass"
+  })
 
   return (
     <div class="h-full overflow-y-auto no-scrollbar">
@@ -189,47 +259,156 @@ export function SessionTestConfigTab() {
               <Show when={config()?.framework}>
                 <div class="flex items-center gap-2 text-12-regular">
                   <span class="text-text-weak w-20">Framework</span>
-                  <span class="text-text-base font-medium">{config()!.framework as string}</span>
+                  <span class="text-text-base font-medium">{config()!.framework}</span>
                 </div>
               </Show>
-              <Show when={(config()?.docker as any)?.enabled !== undefined}>
+              <Show when={config()?.project_type}>
+                <div class="flex items-center gap-2 text-12-regular">
+                  <span class="text-text-weak w-20">Type</span>
+                  <span class="text-text-base font-medium">{config()!.project_type}</span>
+                </div>
+              </Show>
+              <Show when={config()?.docker?.enabled !== undefined}>
                 <div class="flex items-center gap-2 text-12-regular">
                   <span class="text-text-weak w-20">Docker</span>
                   <span class="text-text-base font-medium">
-                    {(config()!.docker as any)?.enabled ? (config()!.docker as any)?.image ?? "enabled" : "disabled"}
+                    {config()!.docker?.enabled ? config()!.docker?.image ?? "enabled" : "disabled"}
                   </span>
                 </div>
               </Show>
-              <Show when={(config()?.commands as any)?.test}>
+              <Show when={config()?.commands?.test}>
                 <div class="flex items-center gap-2 text-12-regular">
                   <span class="text-text-weak w-20">Test</span>
                   <code class="text-text-base text-11-regular font-mono bg-surface-inset px-1.5 py-0.5 rounded">
-                    {(config()!.commands as any).test}
+                    {config()!.commands!.test}
                   </code>
                 </div>
               </Show>
-              <Show when={(config()?.commands as any)?.lint}>
+              <Show when={config()?.commands?.lint}>
                 <div class="flex items-center gap-2 text-12-regular">
                   <span class="text-text-weak w-20">Lint</span>
                   <code class="text-text-base text-11-regular font-mono bg-surface-inset px-1.5 py-0.5 rounded">
-                    {(config()!.commands as any).lint}
+                    {config()!.commands!.lint}
                   </code>
                 </div>
               </Show>
-              <Show when={(config()?.commands as any)?.typecheck}>
+              <Show when={config()?.commands?.typecheck}>
                 <div class="flex items-center gap-2 text-12-regular">
                   <span class="text-text-weak w-20">Typecheck</span>
                   <code class="text-text-base text-11-regular font-mono bg-surface-inset px-1.5 py-0.5 rounded">
-                    {(config()!.commands as any).typecheck}
+                    {config()!.commands!.typecheck}
                   </code>
                 </div>
               </Show>
-              <Show when={(config()?.paths as any)?.tests}>
+              <Show when={config()?.paths?.tests}>
                 <div class="flex items-center gap-2 text-12-regular">
                   <span class="text-text-weak w-20">Tests</span>
                   <span class="text-text-base font-mono text-11-regular">
-                    {((config()!.paths as any).tests as string[]).join(", ")}
+                    {config()!.paths!.tests!.join(", ")}
                   </span>
+                </div>
+              </Show>
+              <Show when={config()?.test_methods}>
+                <div class="flex flex-col gap-2 pt-1">
+                  <div class="text-12-medium text-text-weak">Test Methods</div>
+                  <Show when={config()?.test_methods?.unit}>
+                    <div class="flex flex-col gap-1 rounded border border-border-base bg-surface-inset p-2">
+                      <div class="flex items-center justify-between text-11-medium text-text-weak">
+                        <span>Unit</span>
+                        <span>{config()?.test_methods?.unit?.required ? "Required" : "Optional"}</span>
+                      </div>
+                      <Show when={config()?.test_methods?.unit?.command}>
+                        <code class="text-text-base text-11-regular font-mono">
+                          {config()?.test_methods?.unit?.command}
+                        </code>
+                      </Show>
+                      <Show when={config()?.validation?.unit?.status}>
+                        <span class="text-11-regular text-text-weak">
+                          Validation: {config()?.validation?.unit?.status}
+                          <Show when={config()?.validation?.unit?.note}>
+                            {" — "}
+                            {config()?.validation?.unit?.note}
+                          </Show>
+                        </span>
+                      </Show>
+                    </div>
+                  </Show>
+                  <Show when={config()?.test_methods?.endpoint}>
+                    <div class="flex flex-col gap-1 rounded border border-border-base bg-surface-inset p-2">
+                      <div class="flex items-center justify-between text-11-medium text-text-weak">
+                        <span>Endpoint</span>
+                        <span>{config()?.test_methods?.endpoint?.required ? "Required" : "Optional"}</span>
+                      </div>
+                      <Show when={config()?.test_methods?.endpoint?.command}>
+                        <code class="text-text-base text-11-regular font-mono">
+                          {config()?.test_methods?.endpoint?.command}
+                        </code>
+                      </Show>
+                      <Show when={config()?.validation?.endpoint?.status}>
+                        <span class="text-11-regular text-text-weak">
+                          Validation: {config()?.validation?.endpoint?.status}
+                          <Show when={config()?.validation?.endpoint?.note}>
+                            {" — "}
+                            {config()?.validation?.endpoint?.note}
+                          </Show>
+                        </span>
+                      </Show>
+                    </div>
+                  </Show>
+                  <Show when={config()?.test_methods?.e2e}>
+                    <div class="flex flex-col gap-1 rounded border border-border-base bg-surface-inset p-2">
+                      <div class="flex items-center justify-between text-11-medium text-text-weak">
+                        <span>E2E</span>
+                        <span>{config()?.test_methods?.e2e?.required ? "Required" : "Optional"}</span>
+                      </div>
+                      <Show when={config()?.test_methods?.e2e?.command}>
+                        <code class="text-text-base text-11-regular font-mono">
+                          {config()?.test_methods?.e2e?.command}
+                        </code>
+                      </Show>
+                      <Show when={config()?.test_methods?.e2e?.runner}>
+                        <span class="text-11-regular text-text-weak">Runner: {config()?.test_methods?.e2e?.runner}</span>
+                      </Show>
+                      <Show when={configValue(config()?.test_methods?.e2e?.settings, "base_url")}>
+                        <span class="text-11-regular text-text-weak">
+                          Base URL: {configValue(config()?.test_methods?.e2e?.settings, "base_url")}
+                        </span>
+                      </Show>
+                      <Show when={configValue(config()?.test_methods?.e2e?.settings, "start_command")}>
+                        <span class="text-11-regular text-text-weak">
+                          Start: {configValue(config()?.test_methods?.e2e?.settings, "start_command")}
+                        </span>
+                      </Show>
+                      <Show when={configValue(config()?.test_methods?.e2e?.settings, "wait_for")}>
+                        <span class="text-11-regular text-text-weak">
+                          Wait For: {configValue(config()?.test_methods?.e2e?.settings, "wait_for")}
+                        </span>
+                      </Show>
+                      <Show when={configValue(config()?.test_methods?.e2e?.mocks, "strategy")}>
+                        <span class="text-11-regular text-text-weak">
+                          Mocks: {configValue(config()?.test_methods?.e2e?.mocks, "strategy")}
+                        </span>
+                      </Show>
+                      <Show when={config()?.validation?.e2e?.status}>
+                        <span class="text-11-regular text-text-weak">
+                          Validation: {config()?.validation?.e2e?.status}
+                          <Show when={config()?.validation?.e2e?.note}>
+                            {" — "}
+                            {config()?.validation?.e2e?.note}
+                          </Show>
+                        </span>
+                      </Show>
+                    </div>
+                  </Show>
+                </div>
+              </Show>
+              <Show when={warnings().length > 0 || e2eNeedsAttention()}>
+                <div class="flex flex-col gap-1 rounded border border-border-base bg-surface-inset p-2">
+                  <div class="text-12-medium text-text-base">Validation Attention</div>
+                  <Show when={e2eNeedsAttention()}>
+                    <div class="text-11-regular text-text-weak">E2E is required but has not passed validation yet.</div>
+                  </Show>
+                  <For each={warnings()}>{(warning) => <div class="text-11-regular text-text-weak">{warning}</div>}</For>
                 </div>
               </Show>
             </div>
