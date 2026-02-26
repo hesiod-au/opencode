@@ -1,5 +1,6 @@
 import { Log } from "../util/log"
 import { Session } from "../session"
+import { SessionStatus } from "../session/status"
 import { SessionPrompt } from "../session/prompt"
 import { MessageV2 } from "../session/message-v2"
 import { Identifier } from "../id/id"
@@ -330,6 +331,9 @@ ${guardrails}
       title: `Task ${taskId}: ${taskTitle}`,
     })
 
+    // Set session status to busy
+    SessionStatus.set(session.id, { type: "busy" })
+
     // Claim the task (update status to in-progress)
     try {
       await TaskList.update(paths.taskListPath, paths.lockPath, (current) =>
@@ -631,6 +635,9 @@ ${guardrails}
 
       log.info("task completed", { taskId, sessionId: session.id, stats })
 
+      // Set session status to idle
+      SessionStatus.set(session.id, { type: "idle" })
+
       return {
         success: true,
         sessionId: session.id,
@@ -682,6 +689,9 @@ ${guardrails}
         sessionId: session.id,
         error: err.message || String(err),
       })
+
+      // Set session status to idle
+      SessionStatus.set(session.id, { type: "idle" })
 
       return {
         success: false,

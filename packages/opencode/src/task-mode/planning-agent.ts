@@ -1,5 +1,6 @@
 import { Log } from "../util/log"
 import { Session } from "../session"
+import { SessionStatus } from "../session/status"
 import { SessionPrompt } from "../session/prompt"
 import { Identifier } from "../id/id"
 import { Bus } from "../bus"
@@ -204,6 +205,10 @@ export namespace PlanningAgent {
     } catch (err: any) {
       log.error("planning failed", { error: err })
       await logToParent(parentSessionId, `**Planning failed:** ${err.message || String(err)}`)
+
+      // Set session status to idle
+      SessionStatus.set(sessionId, { type: "idle" })
+
       return { success: false, sessionId, taskCount: 0, error: err.message || String(err) }
     }
   }
@@ -223,6 +228,10 @@ export namespace PlanningAgent {
       ]
     })
     log.info("planning agent created session", { sessionId: session.id, parentId: parentSessionId })
+
+    // Set session status to busy
+    SessionStatus.set(session.id, { type: "busy" })
+
     return session.id
   }
 
@@ -306,6 +315,9 @@ export namespace PlanningAgent {
       parentSessionId,
       `**Planning completed** ✓\n\nGenerated ${plan.tasks.length} tasks:\n\n${taskSummary}`,
     )
+
+    // Set session status to idle
+    SessionStatus.set(sessionId, { type: "idle" })
 
     return { success: true, sessionId, taskCount: plan.tasks.length }
   }

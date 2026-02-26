@@ -1308,7 +1308,6 @@ The E2E test validates that all components work together correctly. Focus on int
 
           if (state.activeTasks.size >= maxConcurrent && pendingTasks.length > 0) {
             // At capacity with more work waiting
-            WorkflowOrchestrator.setWaiting(state.parentSessionId!)
             await logStatus(
               `waiting-capacity-${activeTaskIds.sort().join(",")}`,
               `**Waiting for task slot** (${state.activeTasks.size}/${maxConcurrent} running)\n\n` +
@@ -1317,7 +1316,6 @@ The E2E test validates that all components work together correctly. Focus on int
             )
           } else if (waitingOnDeps.length > 0 && pendingTasks.length === waitingOnDeps.length) {
             // All remaining tasks are blocked by dependencies
-            WorkflowOrchestrator.setWaiting(state.parentSessionId!)
             const depInfo = waitingOnDeps
               .slice(0, 3)
               .map((t) => `${t.id} → needs ${t.dependencies!.join(", ")}`)
@@ -1330,14 +1328,10 @@ The E2E test validates that all components work together correctly. Focus on int
             )
           } else if (pendingTasks.length === 0) {
             // No pending tasks, just waiting for active ones to finish
-            WorkflowOrchestrator.setWaiting(state.parentSessionId!)
             await logStatus(
               `waiting-completion-${activeTaskIds.sort().join(",")}`,
               `**Waiting for tasks to complete**\n\n` + `Active: ${activeTaskIds.join(", ")}`,
             )
-          } else {
-            // Have runnable tasks or actively launching, set to busy
-            WorkflowOrchestrator.setBusy(state.parentSessionId!)
           }
         }
       } catch (err) {
