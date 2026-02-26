@@ -1261,6 +1261,27 @@ export namespace Config {
         })
         .optional()
         .describe("Task mode configuration for multi-agent orchestration"),
+      testFix: z
+        .object({
+          maxConcurrentAgents: z
+            .number()
+            .optional()
+            .describe("Max concurrent fix agents across all groups (default: 10)"),
+          maxFixRetries: z
+            .number()
+            .optional()
+            .describe("Max test/fix iterations per failing file (default: 5)"),
+          maxGroupRetries: z
+            .number()
+            .optional()
+            .describe("Max full suite regression re-runs per group (default: 3)"),
+          staggerSeconds: z
+            .number()
+            .optional()
+            .describe("Seconds between launching fix agents (default: 3)"),
+        })
+        .optional()
+        .describe("Test fix workflow configuration"),
       experimental: z
         .object({
           disable_paste_summary: z.boolean().optional(),
