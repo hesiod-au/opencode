@@ -4,6 +4,7 @@ import { WorkflowEvent } from "./events"
 import { WorkflowRegistry } from "./registry"
 import { WorkflowState } from "./state"
 import { Workflow } from "./workflow"
+import { WorkflowOrchestrator } from "./orchestrator"
 
 export namespace ComposableWorkflow {
   const log = Log.create({ service: "composable-workflow" })
@@ -51,6 +52,13 @@ export namespace ComposableWorkflow {
 
     function progress(msg: string) {
       log.info("progress", { workflow: options.id, message: msg })
+
+      if (state?.parentSessionId) {
+        WorkflowOrchestrator.logProgress(state.parentSessionId, msg).catch((err) => {
+          log.error("failed to log progress", { error: err })
+        })
+      }
+
       Bus.publish(WorkflowEvent.Progress, {
         workflowId: options.id,
         message: msg,
@@ -75,12 +83,17 @@ export namespace ComposableWorkflow {
 
         const runId = opts.runId ?? WorkflowState.startRun(options.id)
 
+        const orchestratorSessionId = await WorkflowOrchestrator.initializeOrchestrator(
+          options.name,
+          opts.parentSessionId,
+        )
+
         state = {
           runId,
           running: true,
           currentStepIndex: 0,
           abortController: new AbortController(),
-          parentSessionId: opts.parentSessionId,
+          parentSessionId: orchestratorSessionId,
           startedAt: Date.now(),
           results: new Map(),
           stepStatuses: Object.fromEntries(steps.map((s) => [stepId(s), "pending"])),

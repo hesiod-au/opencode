@@ -19,6 +19,7 @@ import { Workflow } from "../workflow/workflow"
 import { WorkflowState } from "../workflow/state"
 import fs from "fs/promises"
 import path from "path"
+import { WorkflowOrchestrator } from "../workflow/orchestrator"
 
 export namespace Orchestrator {
   const log = Log.create({ service: "orchestrator" })
@@ -132,43 +133,10 @@ export namespace Orchestrator {
   async function logAction(text: string): Promise<void> {
     const state = instanceState().current
     if (!state?.parentSessionId) {
-      log.warn("logAction called but no parentSessionId", { text: text.slice(0, 50) })
-      return
+      log.error("logAction called without orchestrator session")
+      throw new Error("Orchestrator session not initialized")
     }
-
-    try {
-      const messageID = Identifier.ascending("message")
-      const partID = Identifier.ascending("part")
-      const model = await resolveModel()
-
-      log.info("logAction: creating message", {
-        messageID,
-        parentSessionId: state.parentSessionId,
-        text: text.slice(0, 50),
-      })
-
-      await Session.updateMessage({
-        id: messageID,
-        sessionID: state.parentSessionId,
-        role: "user",
-        time: { created: Date.now() },
-        agent: "build",
-        model,
-      })
-
-      await Session.updatePart({
-        id: partID,
-        sessionID: state.parentSessionId,
-        messageID,
-        type: "text",
-        text,
-        synthetic: true,
-      })
-
-      log.info("logAction: message created successfully", { messageID })
-    } catch (err) {
-      log.error("logAction failed", { error: err, text: text.slice(0, 50) })
-    }
+    await WorkflowOrchestrator.logProgress(state.parentSessionId, text)
   }
 
   async function createFinalReport(
@@ -794,18 +762,15 @@ The E2E test validates that all components work together correctly. Focus on int
       taskModeConfig.listPath ?? ".opencode/tasks/default/task_list.md",
     )
 
-    // Use parent session for logging (user's main session)
-    const parentSessionId = options?.parentSessionId
-    log.info("orchestrator start options", {
-      parentSessionId,
-      hasParent: !!parentSessionId,
+    // Initialize orchestrator session (use existing or create new)
+    const orchestratorSessionId = await WorkflowOrchestrator.initializeOrchestrator(
+      "Task Mode",
+      options?.parentSessionId,
+    )
+    log.info("orchestrator initialized", {
+      orchestratorSessionId,
       userPrompt: options?.userPrompt?.slice(0, 50),
     })
-    if (parentSessionId) {
-      log.info("orchestrator will log to parent session", { parentSessionId })
-    } else {
-      log.warn("orchestrator started without parent session, actions will not be logged to UI")
-    }
 
     // Take a snapshot of the current working tree before any tasks run
     const startSnapshot = await Snapshot.track().catch((err) => {
@@ -817,7 +782,7 @@ The E2E test validates that all components work together correctly. Focus on int
       runId: options?.runId,
       running: true,
       paths,
-      parentSessionId,
+      parentSessionId: orchestratorSessionId,
       activeTasks: new Map(),
       launchedTaskIds: new Set(),
       pollInterval: null,

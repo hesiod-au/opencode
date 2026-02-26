@@ -90,33 +90,6 @@ export namespace TestConfigWorkflow {
     return { mode: "none", runnable: [], missingRequired: [] }
   }
 
-  async function logToSession(sessionId: string, text: string): Promise<void> {
-    try {
-      const agent = await Agent.get("build")
-      const model = agent?.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
-      const messageID = Identifier.ascending("message")
-      const partID = Identifier.ascending("part")
-      await Session.updateMessage({
-        id: messageID,
-        sessionID: sessionId,
-        role: "user",
-        time: { created: Date.now() },
-        agent: "build",
-        model,
-      })
-      await Session.updatePart({
-        id: partID,
-        sessionID: sessionId,
-        messageID,
-        type: "text",
-        text,
-        synthetic: true,
-      })
-    } catch (err) {
-      log.error("logToSession failed", { error: err })
-    }
-  }
-
   async function readConfig(): Promise<Record<string, unknown> | undefined> {
     const configPath = `${Instance.directory}/test-config.json`
     const exists = await Bun.file(configPath)
@@ -152,6 +125,7 @@ export namespace TestConfigWorkflow {
 
   const analyzeStep = ComposableWorkflow.step("analyze", "Analyze Project", async (ctx) => {
     const orchestratorSession = await Session.create({
+      parentID: ctx.parentSessionId,
       title: "Test Config — Analysis",
     })
     const sessionId = orchestratorSession.id
@@ -309,6 +283,7 @@ Notes:
     if (missingSummary) ctx.progress(`Required test methods missing commands: ${missingSummary}`)
 
     const validateSession = await Session.create({
+      parentID: ctx.parentSessionId,
       title: "Test Config — Validation",
     })
 

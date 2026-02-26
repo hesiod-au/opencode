@@ -12,6 +12,7 @@ import { WorkflowState } from "../workflow/state"
 import { PRReviewEvent } from "./events"
 import { GH } from "./gh"
 import { Workflow } from "../workflow/workflow"
+import { WorkflowOrchestrator } from "../workflow/orchestrator"
 
 export namespace PRReviewWorkflow {
   const log = Log.create({ service: "pr-review" })
@@ -91,31 +92,11 @@ export namespace PRReviewWorkflow {
 
   async function logToSession(text: string): Promise<void> {
     const state = instanceState().current
-    if (!state?.orchestratorSessionId) return
-    try {
-      const agent = await Agent.get("build")
-      const model = agent?.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
-      const messageID = Identifier.ascending("message")
-      const partID = Identifier.ascending("part")
-      await Session.updateMessage({
-        id: messageID,
-        sessionID: state.orchestratorSessionId,
-        role: "user",
-        time: { created: Date.now() },
-        agent: "build",
-        model,
-      })
-      await Session.updatePart({
-        id: partID,
-        sessionID: state.orchestratorSessionId,
-        messageID,
-        type: "text",
-        text,
-        synthetic: true,
-      })
-    } catch (err) {
-      log.error("logToSession failed", { error: err })
+    if (!state?.orchestratorSessionId) {
+      log.error("logToSession called without orchestrator session")
+      return
     }
+    await WorkflowOrchestrator.logProgress(state.orchestratorSessionId, text)
   }
 
   function progress(message: string) {
@@ -450,15 +431,16 @@ If the issue is local, continue with a minimal code fix in this same message.
       const config = await Config.get()
       const prConfig = config.prReview
 
-      // Create an orchestrator session to track progress
-      const orchestratorSession = await Session.create({
-        title: "PR Review",
-      })
+      // Initialize orchestrator session (use existing or create new)
+      const orchestratorSessionId = await WorkflowOrchestrator.initializeOrchestrator(
+        "PR Review",
+        options.parentSessionId,
+      )
 
       instanceState().current = {
         runId,
         running: true,
-        orchestratorSessionId: orchestratorSession.id,
+        orchestratorSessionId,
         startedAt: Date.now(),
         cycleCount: 0,
         recheckAttempts: 0,
@@ -471,13 +453,13 @@ If the issue is local, continue with a minimal code fix in this same message.
 
       WorkflowState.updateStatus(runId, {
         running: true,
-        parentSessionId: orchestratorSession.id,
+        parentSessionId: orchestratorSessionId,
         startedAt: Date.now(),
       })
 
       Bus.publish(WorkflowEvent.Started, {
         workflowId: "pr-review",
-        parentSessionId: orchestratorSession.id,
+        parentSessionId: orchestratorSessionId,
         runId,
       })
 
