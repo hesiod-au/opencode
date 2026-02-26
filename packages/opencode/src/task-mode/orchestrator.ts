@@ -271,23 +271,50 @@ ${
 `
 
       // Write the report as a message in the report session
-      const messageID = Identifier.ascending("message")
-      const partID = Identifier.ascending("part")
-
       const model = await resolveModel()
+      const reportTime = Date.now()
+
+      // Create a synthetic user message first
+      const reportUserMsgID = Identifier.ascending("message")
       await Session.updateMessage({
-        id: messageID,
+        id: reportUserMsgID,
         sessionID: reportSession.id,
         role: "user",
-        time: { created: Date.now() },
+        time: { created: reportTime },
         agent: "build",
         model,
       })
 
       await Session.updatePart({
-        id: partID,
+        id: Identifier.ascending("part"),
         sessionID: reportSession.id,
-        messageID,
+        messageID: reportUserMsgID,
+        type: "text",
+        text: "Generate task mode report",
+        synthetic: true,
+      })
+
+      // Create assistant message with the report
+      const reportAsstMsgID = Identifier.ascending("message")
+      await Session.updateMessage({
+        id: reportAsstMsgID,
+        sessionID: reportSession.id,
+        role: "assistant",
+        parentID: reportUserMsgID,
+        time: { created: reportTime, completed: reportTime },
+        agent: "build",
+        modelID: model.modelID,
+        providerID: model.providerID,
+        mode: "default",
+        path: { cwd: Instance.directory, root: Instance.directory },
+        cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      })
+
+      await Session.updatePart({
+        id: Identifier.ascending("part"),
+        sessionID: reportSession.id,
+        messageID: reportAsstMsgID,
         type: "text",
         text: reportContent,
       })
