@@ -107,9 +107,11 @@ export namespace ComposableWorkflow {
 
         Bus.publish(WorkflowEvent.Started, {
           workflowId: options.id,
-          parentSessionId: opts.parentSessionId,
+          parentSessionId: orchestratorSessionId,
           runId,
         })
+
+        WorkflowOrchestrator.setBusy(orchestratorSessionId)
 
         try {
           await run(opts)
@@ -129,6 +131,10 @@ export namespace ComposableWorkflow {
         state.completedAt = Date.now()
         state.abortController.abort()
         state.subWorkflowUnsub?.()
+
+        if (state.parentSessionId) {
+          WorkflowOrchestrator.setIdle(state.parentSessionId)
+        }
 
         WorkflowState.endRun(runId, reason)
         WorkflowState.updateStatus(runId, {

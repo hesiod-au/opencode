@@ -11,6 +11,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { MessageNav } from "@opencode-ai/ui/message-nav"
 import { Spinner } from "@opencode-ai/ui/spinner"
+import { WaitingSpinner } from "@opencode-ai/ui/waiting-spinner"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { getFilename } from "@opencode-ai/util/path"
 import { type Message, type Session, type TextPart } from "@opencode-ai/sdk/v2/client"
@@ -88,10 +89,34 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     }
     return false
   })
+
+  const aggregatedStatus = createMemo(() => {
+    if (hasPermissions()) return null
+
+    const ownStatus = sessionStore.session_status[props.session.id]
+    const childIds = props.children.get(props.session.id) ?? []
+
+    if (childIds.length === 0) return ownStatus
+
+    const childStatuses = childIds.map((id) => sessionStore.session_status[id]).filter(Boolean)
+
+    const anyChildBusy = childStatuses.some((s) => s.type === "busy" || s.type === "retry")
+    if (anyChildBusy) return { type: "busy" as const }
+
+    const anyChildWaiting = childStatuses.some((s) => s.type === "waiting")
+    if (anyChildWaiting) return { type: "waiting" as const }
+
+    return ownStatus
+  })
+
   const isWorking = createMemo(() => {
-    if (hasPermissions()) return false
-    const status = sessionStore.session_status[props.session.id]
+    const status = aggregatedStatus()
     return status?.type === "busy" || status?.type === "retry"
+  })
+
+  const isWaiting = createMemo(() => {
+    const status = aggregatedStatus()
+    return status?.type === "waiting"
   })
 
   const tint = createMemo(() => {
@@ -163,6 +188,9 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
           <Switch fallback={<Icon name="dash" size="small" class="text-icon-weak" />}>
             <Match when={isWorking()}>
               <Spinner class="size-[15px]" />
+            </Match>
+            <Match when={isWaiting()}>
+              <WaitingSpinner class="size-[15px]" />
             </Match>
             <Match when={hasPermissions()}>
               <div class="size-1.5 rounded-full bg-surface-warning-strong" />

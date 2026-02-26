@@ -22,6 +22,26 @@
   }
 }
 
+@keyframes pulse-waiting {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@keyframes pulse-waiting-dim {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}
+
 @keyframes fadeUp {
   from {
     opacity: 0;

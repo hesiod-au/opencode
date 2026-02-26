@@ -1,4 +1,5 @@
 import { Session } from "../session"
+import { SessionStatus } from "../session/status"
 import { Agent } from "../agent/agent"
 import { Identifier } from "../id/id"
 import { Log } from "../util/log"
@@ -14,10 +15,7 @@ export namespace WorkflowOrchestrator {
    * @param parentSessionId - Optional existing session ID to use as orchestrator
    * @returns Guaranteed non-null orchestrator session ID
    */
-  export async function initializeOrchestrator(
-    workflowName: string,
-    parentSessionId?: string,
-  ): Promise<string> {
+  export async function initializeOrchestrator(workflowName: string, parentSessionId?: string): Promise<string> {
     if (parentSessionId) {
       log.info("using existing session as orchestrator", { workflowName, sessionId: parentSessionId })
       return parentSessionId
@@ -37,10 +35,7 @@ export namespace WorkflowOrchestrator {
    * @param orchestratorSessionId - The orchestrator session ID
    * @param text - Progress message to log
    */
-  export async function logProgress(
-    orchestratorSessionId: string,
-    text: string,
-  ): Promise<void> {
+  export async function logProgress(orchestratorSessionId: string, text: string): Promise<void> {
     try {
       const agent = await Agent.get("build")
       const model = agent?.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
@@ -69,5 +64,35 @@ export namespace WorkflowOrchestrator {
     } catch (err) {
       log.error("failed to log progress", { error: err, sessionId: orchestratorSessionId })
     }
+  }
+
+  /**
+   * Set orchestrator session status to busy (working).
+   *
+   * @param orchestratorSessionId - The orchestrator session ID
+   */
+  export function setBusy(orchestratorSessionId: string): void {
+    SessionStatus.set(orchestratorSessionId, { type: "busy" })
+    log.info("orchestrator set to busy", { sessionId: orchestratorSessionId })
+  }
+
+  /**
+   * Set orchestrator session status to waiting.
+   *
+   * @param orchestratorSessionId - The orchestrator session ID
+   */
+  export function setWaiting(orchestratorSessionId: string): void {
+    SessionStatus.set(orchestratorSessionId, { type: "waiting" })
+    log.info("orchestrator set to waiting", { sessionId: orchestratorSessionId })
+  }
+
+  /**
+   * Set orchestrator session status to idle (completed).
+   *
+   * @param orchestratorSessionId - The orchestrator session ID
+   */
+  export function setIdle(orchestratorSessionId: string): void {
+    SessionStatus.set(orchestratorSessionId, { type: "idle" })
+    log.info("orchestrator set to idle", { sessionId: orchestratorSessionId })
   }
 }

@@ -481,6 +481,9 @@ If the issue is local, continue with a minimal code fix in this same message.
       instanceState().current!.prNumber = prNumber
       progress(`Starting PR review cycle for PR #${prNumber}`)
 
+      // Set orchestrator to busy
+      WorkflowOrchestrator.setBusy(orchestratorSessionId)
+
       // Run the main loop
       const maxCycles = prConfig?.maxCycles ?? 20
       const pollMinutes = prConfig?.pollIntervalMinutes ?? 2
@@ -505,6 +508,10 @@ If the issue is local, continue with a minimal code fix in this same message.
       state.running = false
       state.completedAt = Date.now()
       state.abortController.abort()
+
+      if (state.orchestratorSessionId) {
+        WorkflowOrchestrator.setIdle(state.orchestratorSessionId)
+      }
 
       if (runId) {
         WorkflowState.endRun(runId, reason)
@@ -560,7 +567,7 @@ If the issue is local, continue with a minimal code fix in this same message.
     maxRecheckAttempts: number
   }) {
     const state = instanceState().current
-    if (!state) return
+    if (!state || !state.orchestratorSessionId) return
 
     // Get initial HEAD commit
     state.lastCommitSha = await GH.getLastCommitSha()
@@ -601,12 +608,14 @@ If the issue is local, continue with a minimal code fix in this same message.
 
         setPhase("waiting", `${opts.pollMinutes} minutes`)
         progress(`No new actionable comments. Waiting ${opts.pollMinutes} minutes for next review...`)
+        WorkflowOrchestrator.setWaiting(state.orchestratorSessionId!)
 
         const aborted = await sleep(opts.pollMinutes * 60 * 1000, state.abortController.signal)
         if (aborted || !state?.running) return
 
         setPhase("checking-comments")
         progress("Checking for new review comments...")
+        WorkflowOrchestrator.setBusy(state.orchestratorSessionId!)
         continue
       }
 
@@ -746,6 +755,7 @@ If the issue is local, continue with a minimal code fix in this same message.
       // 6. Wait for next review
       setPhase("waiting", `${opts.pollMinutes} minutes`)
       progress(`Waiting ${opts.pollMinutes} minutes for new review comments...`)
+      WorkflowOrchestrator.setWaiting(state.orchestratorSessionId!)
 
       const aborted = await sleep(opts.pollMinutes * 60 * 1000, state.abortController.signal)
       if (aborted || !state?.running) return
@@ -753,6 +763,7 @@ If the issue is local, continue with a minimal code fix in this same message.
       // 7. Check for new comments
       setPhase("checking-comments")
       progress("Checking for new review comments...")
+      WorkflowOrchestrator.setBusy(state.orchestratorSessionId!)
     }
   }
 

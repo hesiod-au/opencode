@@ -9292,6 +9292,16 @@
               }
             },
             "required": ["type"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "waiting"
+              }
+            },
+            "required": ["type"]
           }
         ]
       },

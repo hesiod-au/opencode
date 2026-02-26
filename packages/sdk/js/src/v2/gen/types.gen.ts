@@ -549,6 +549,9 @@ export type SessionStatus =
   | {
       type: "busy"
     }
+  | {
+      type: "waiting"
+    }
 
 export type EventSessionStatus = {
   type: "session.status"
