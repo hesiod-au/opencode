@@ -174,10 +174,7 @@ export namespace PlanningAgent {
         await logToParent(parentSessionId, "**Planning:** assessment complete, synthesized task table ready")
       } catch (err: any) {
         log.warn("assessment failed, falling back to available analysis", { error: err })
-        await logToParent(
-          parentSessionId,
-          `**Planning:** assessment failed (${err.message}), using available analysis`,
-        )
+        await logToParent(parentSessionId, `**Planning:** assessment failed (${err.message}), using available analysis`)
         finalPlanText = plan1
       }
 

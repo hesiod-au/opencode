@@ -5,6 +5,7 @@ import { errors } from "../error"
 import { Log } from "../../util/log"
 import { lazy } from "../../util/lazy"
 import { WorkflowRegistry } from "../../workflow/registry"
+import { WorkflowState } from "../../workflow/state"
 
 const log = Log.create({ service: "workflow-routes" })
 
@@ -16,6 +17,14 @@ const WorkflowStatusSchema = z
     parentSessionId: z.string().optional(),
     startedAt: z.number().optional(),
     completedAt: z.number().optional(),
+    runId: z.string().optional(),
+    progress: z
+      .object({
+        current: z.number(),
+        total: z.number(),
+        label: z.string().optional(),
+      })
+      .optional(),
     stats: z
       .object({
         inputTokens: z.number(),
@@ -33,6 +42,7 @@ const WorkflowInfoSchema = z
     id: z.string(),
     name: z.string(),
     running: z.boolean(),
+    runId: z.string().optional(),
     hasConfirm: z.boolean(),
     activationMode: z.enum(["start", "enable", "both"]),
     steps: z.number().optional(),
@@ -59,15 +69,19 @@ export const WorkflowRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const workflows = WorkflowRegistry.list().map((w) => ({
-          id: w.id,
-          name: w.name,
-          running: w.isRunning(),
-          hasConfirm: !!w.confirmPlan,
-          activationMode: w.activationMode,
-          steps: w.steps?.length,
-          toolInvocable: !!w.toolInvocable,
-        }))
+        const workflows = WorkflowRegistry.list().map((w) => {
+          const activeRun = WorkflowState.getActiveRun(w.id)
+          return {
+            id: w.id,
+            name: w.name,
+            running: w.isRunning(),
+            runId: activeRun?.runId,
+            hasConfirm: !!w.confirmPlan,
+            activationMode: w.activationMode,
+            steps: w.steps?.length,
+            toolInvocable: !!w.toolInvocable,
+          }
+        })
         return c.json(workflows)
       },
     )
@@ -95,7 +109,16 @@ export const WorkflowRoutes = lazy(() =>
       async (c) => {
         const active = await WorkflowRegistry.getActive()
         if (!active) return c.json({ workflowId: undefined, status: undefined })
-        return c.json({ workflowId: active.id, status: active.getStatus() })
+        const activeRun = WorkflowState.getActiveRun(active.id)
+        const status = active.getStatus()
+        return c.json({
+          workflowId: active.id,
+          status: {
+            ...status,
+            runId: activeRun?.runId ?? status.runId,
+            progress: activeRun?.status.progress ?? status.progress,
+          },
+        })
       },
     )
     .get(
@@ -119,7 +142,13 @@ export const WorkflowRoutes = lazy(() =>
       async (c) => {
         const workflow = WorkflowRegistry.get(c.req.valid("param").id)
         if (!workflow) return c.json({ error: "Workflow not found" }, 404)
-        return c.json(workflow.getStatus())
+        const activeRun = WorkflowState.getActiveRun(workflow.id)
+        const status = workflow.getStatus()
+        return c.json({
+          ...status,
+          runId: activeRun?.runId ?? status.runId,
+          progress: activeRun?.status.progress ?? status.progress,
+        })
       },
     )
     .post(

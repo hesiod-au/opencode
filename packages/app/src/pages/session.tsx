@@ -1024,7 +1024,10 @@ function PageContent() {
   const openedTabs = createMemo(() =>
     tabs()
       .all()
-      .filter((tab) => tab !== "context" && tab !== "tasks" && tab !== "pr-review" && tab !== "test-config" && tab !== "review"),
+      .filter(
+        (tab) =>
+          tab !== "context" && tab !== "tasks" && tab !== "pr-review" && tab !== "test-config" && tab !== "review",
+      ),
   )
 
   const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
@@ -1320,7 +1323,15 @@ function PageContent() {
   createEffect(() => {
     if (!layout.ready()) return
     if (tabs().active()) return
-    if (openedTabs().length === 0 && !contextOpen() && !tasksOpen() && !prReviewOpen() && !testConfigOpen() && !(reviewTab() && hasReview())) return
+    if (
+      openedTabs().length === 0 &&
+      !contextOpen() &&
+      !tasksOpen() &&
+      !prReviewOpen() &&
+      !testConfigOpen() &&
+      !(reviewTab() && hasReview())
+    )
+      return
 
     const next = activeTab()
     if (next === "empty") return

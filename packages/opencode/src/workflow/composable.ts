@@ -2,6 +2,7 @@ import { Log } from "../util/log"
 import { Bus } from "../bus"
 import { WorkflowEvent } from "./events"
 import { WorkflowRegistry } from "./registry"
+import { WorkflowState } from "./state"
 import { Workflow } from "./workflow"
 
 export namespace ComposableWorkflow {
@@ -17,6 +18,7 @@ export namespace ComposableWorkflow {
   }
 
   interface State {
+    runId: string
     running: boolean
     currentStepIndex: number
     abortController: AbortController
@@ -49,7 +51,11 @@ export namespace ComposableWorkflow {
 
     function progress(msg: string) {
       log.info("progress", { workflow: options.id, message: msg })
-      Bus.publish(WorkflowEvent.Progress, { workflowId: options.id, message: msg })
+      Bus.publish(WorkflowEvent.Progress, {
+        workflowId: options.id,
+        message: msg,
+        runId: state?.runId,
+      })
     }
 
     const definition: Workflow.Definition = {
@@ -67,7 +73,10 @@ export namespace ComposableWorkflow {
           return
         }
 
+        const runId = opts.runId ?? WorkflowState.startRun(options.id)
+
         state = {
+          runId,
           running: true,
           currentStepIndex: 0,
           abortController: new AbortController(),
@@ -77,9 +86,16 @@ export namespace ComposableWorkflow {
           stepStatuses: Object.fromEntries(steps.map((s) => [stepId(s), "pending"])),
         }
 
+        WorkflowState.updateStatus(runId, {
+          running: true,
+          parentSessionId: opts.parentSessionId,
+          startedAt: state.startedAt,
+        })
+
         Bus.publish(WorkflowEvent.Started, {
           workflowId: options.id,
           parentSessionId: opts.parentSessionId,
+          runId,
         })
 
         try {
@@ -95,22 +111,36 @@ export namespace ComposableWorkflow {
         if (!state) return
         log.info("stopping workflow", { id: options.id, reason })
 
+        const runId = state.runId
         state.running = false
         state.completedAt = Date.now()
         state.abortController.abort()
         state.subWorkflowUnsub?.()
 
-        Bus.publish(WorkflowEvent.Stopped, { workflowId: options.id, reason })
+        WorkflowState.endRun(runId, reason)
+        WorkflowState.updateStatus(runId, {
+          running: false,
+          completedAt: state.completedAt,
+        })
+
+        Bus.publish(WorkflowEvent.Stopped, {
+          workflowId: options.id,
+          reason,
+          runId,
+        })
         state = null
       },
 
       getStatus() {
+        const activeRun = WorkflowState.getActiveRun(options.id)
         return {
           running: state?.running ?? false,
           phase: state ? stepName(steps[state.currentStepIndex] ?? steps[steps.length - 1]) : undefined,
           parentSessionId: state?.parentSessionId,
           startedAt: state?.startedAt,
           completedAt: state?.completedAt,
+          runId: state?.runId ?? activeRun?.runId,
+          progress: activeRun?.status.progress,
           extra: {
             currentStepIndex: state?.currentStepIndex ?? 0,
             stepStatuses: state?.stepStatuses ?? {},
@@ -134,6 +164,11 @@ export namespace ComposableWorkflow {
 
         Bus.publish(WorkflowEvent.PhaseChanged, {
           workflowId: options.id,
+          phase: stepName(s),
+          runId: state.runId,
+        })
+
+        WorkflowState.updateStatus(state.runId, {
           phase: stepName(s),
         })
         Bus.publish(WorkflowEvent.StepStarted, {

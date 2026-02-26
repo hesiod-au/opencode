@@ -58,7 +58,13 @@ async function createTempProject(testIndex: number): Promise<string> {
     cwd: tempDir,
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, GIT_AUTHOR_NAME: "E2E Test", GIT_AUTHOR_EMAIL: "e2e@test.local", GIT_COMMITTER_NAME: "E2E Test", GIT_COMMITTER_EMAIL: "e2e@test.local" },
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "E2E Test",
+      GIT_AUTHOR_EMAIL: "e2e@test.local",
+      GIT_COMMITTER_NAME: "E2E Test",
+      GIT_COMMITTER_EMAIL: "e2e@test.local",
+    },
   })
   await gitCommit.exited
 
@@ -224,9 +230,7 @@ async function runTests() {
   await $`mkdir -p /tmp/e2e-screenshots`.quiet()
 
   // Import all test files
-  const testFiles = await Array.fromAsync(
-    new Bun.Glob("**/*.e2e.ts").scan({ cwd: import.meta.dir, absolute: true }),
-  )
+  const testFiles = await Array.fromAsync(new Bun.Glob("**/*.e2e.ts").scan({ cwd: import.meta.dir, absolute: true }))
 
   for (const file of testFiles) {
     console.log(`Loading tests from: ${file}`)

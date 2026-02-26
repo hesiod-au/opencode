@@ -785,6 +785,88 @@ export type EventTodoUpdated = {
   }
 }
 
+export type EventWorkflowStarted = {
+  type: "workflow.started"
+  properties: {
+    workflowId: string
+    parentSessionId?: string
+    runId?: string
+  }
+}
+
+export type EventWorkflowStopped = {
+  type: "workflow.stopped"
+  properties: {
+    workflowId: string
+    reason: "completed" | "error" | "manual"
+    reportSessionId?: string
+    runId?: string
+  }
+}
+
+export type EventWorkflowPhaseChanged = {
+  type: "workflow.phase_changed"
+  properties: {
+    workflowId: string
+    phase: string
+    detail?: string
+    runId?: string
+  }
+}
+
+export type EventWorkflowProgress = {
+  type: "workflow.progress"
+  properties: {
+    workflowId: string
+    message: string
+    runId?: string
+    progress?: {
+      current: number
+      total: number
+      label?: string
+    }
+  }
+}
+
+export type EventWorkflowStepStarted = {
+  type: "workflow.step_started"
+  properties: {
+    workflowId: string
+    stepId: string
+    stepIndex: number
+  }
+}
+
+export type EventWorkflowStepCompleted = {
+  type: "workflow.step_completed"
+  properties: {
+    workflowId: string
+    stepId: string
+    stepIndex: number
+  }
+}
+
+export type EventWorkflowStatusChanged = {
+  type: "workflow.status_changed"
+  properties: {
+    workflowId: string
+    runId: string
+    status: {
+      running: boolean
+      phase?: string
+      phaseDetail?: string
+      parentSessionId?: string
+      startedAt?: number
+      completedAt?: number
+      progress?: {
+        current: number
+        total: number
+        label?: string
+      }
+    }
+  }
+}
+
 export type EventTuiPromptAppend = {
   type: "tui.prompt.append"
   properties: {
@@ -1004,40 +1086,6 @@ export type EventWorktreeFailed = {
   }
 }
 
-export type EventWorkflowStarted = {
-  type: "workflow.started"
-  properties: {
-    workflowId: string
-    parentSessionId?: string
-  }
-}
-
-export type EventWorkflowStopped = {
-  type: "workflow.stopped"
-  properties: {
-    workflowId: string
-    reason: "completed" | "error" | "manual"
-    reportSessionId?: string
-  }
-}
-
-export type EventWorkflowPhaseChanged = {
-  type: "workflow.phase_changed"
-  properties: {
-    workflowId: string
-    phase: string
-    detail?: string
-  }
-}
-
-export type EventWorkflowProgress = {
-  type: "workflow.progress"
-  properties: {
-    workflowId: string
-    message: string
-  }
-}
-
 export type EventPrReviewCycleStarted = {
   type: "pr-review.cycle.started"
   properties: {
@@ -1058,6 +1106,21 @@ export type EventPrReviewNoNewComments = {
   type: "pr-review.no_new_comments"
   properties: {
     [key: string]: unknown
+  }
+}
+
+export type EventTestConfigAnalysisComplete = {
+  type: "test-config.analysis.complete"
+  properties: {
+    language?: string
+    framework?: string
+  }
+}
+
+export type EventTestConfigConfigWritten = {
+  type: "test-config.config.written"
+  properties: {
+    path: string
   }
 }
 
@@ -1097,6 +1160,13 @@ export type Event =
   | EventTaskmodeTestWritingStarted
   | EventTaskmodeTestWritingCompleted
   | EventTodoUpdated
+  | EventWorkflowStarted
+  | EventWorkflowStopped
+  | EventWorkflowPhaseChanged
+  | EventWorkflowProgress
+  | EventWorkflowStepStarted
+  | EventWorkflowStepCompleted
+  | EventWorkflowStatusChanged
   | EventTuiPromptAppend
   | EventTuiCommandExecute
   | EventTuiToastShow
@@ -1116,13 +1186,11 @@ export type Event =
   | EventPtyDeleted
   | EventWorktreeReady
   | EventWorktreeFailed
-  | EventWorkflowStarted
-  | EventWorkflowStopped
-  | EventWorkflowPhaseChanged
-  | EventWorkflowProgress
   | EventPrReviewCycleStarted
   | EventPrReviewCycleCompleted
   | EventPrReviewNoNewComments
+  | EventTestConfigAnalysisComplete
+  | EventTestConfigConfigWritten
 
 export type GlobalEvent = {
   directory: string
@@ -2060,6 +2128,10 @@ export type Config = {
      */
     maxCycles?: number
     /**
+     * Max re-check attempts when no new actionable comments exist (default: 5)
+     */
+    maxRecheckAttempts?: number
+    /**
      * Test command (auto-detected if omitted)
      */
     testCommand?: string
@@ -2442,7 +2514,11 @@ export type WorkflowInfo = {
   id: string
   name: string
   running: boolean
+  runId?: string
   hasConfirm: boolean
+  activationMode: "start" | "enable" | "both"
+  steps?: number
+  toolInvocable: boolean
 }
 
 export type WorkflowStatus = {
@@ -2452,6 +2528,12 @@ export type WorkflowStatus = {
   parentSessionId?: string
   startedAt?: number
   completedAt?: number
+  runId?: string
+  progress?: {
+    current: number
+    total: number
+    label?: string
+  }
   stats?: {
     inputTokens: number
     outputTokens: number
@@ -2702,6 +2784,26 @@ export type ProjectCurrentResponses = {
 }
 
 export type ProjectCurrentResponse = ProjectCurrentResponses[keyof ProjectCurrentResponses]
+
+export type ProjectBranchData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/project/branch"
+}
+
+export type ProjectBranchResponses = {
+  /**
+   * Current branch name
+   */
+  200: {
+    branch: string | null
+  }
+}
+
+export type ProjectBranchResponse = ProjectBranchResponses[keyof ProjectBranchResponses]
 
 export type ProjectUpdateData = {
   body?: {
@@ -5067,6 +5169,7 @@ export type TaskmodeStatusResponses = {
     activeTasks: number
     phase?: string
     phaseDetail?: string
+    stopReason?: string
     taskList?: {
       title?: string
       description?: string
@@ -5600,6 +5703,7 @@ export type WorkflowStartResponses = {
    */
   200: {
     ok: boolean
+    sessionId?: string
   }
 }
 

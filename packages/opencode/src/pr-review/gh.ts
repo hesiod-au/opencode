@@ -100,7 +100,9 @@ export namespace GH {
           }
         })
         .filter(
-          (comment): comment is {
+          (
+            comment,
+          ): comment is {
             id: number
             body: string
             path?: string

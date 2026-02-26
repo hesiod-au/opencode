@@ -38,7 +38,16 @@ export namespace ClaudeCli {
       // tool-interleaved turns.
       const child = spawn(
         "claude",
-        ["--print", "--output-format", "stream-json", "--model", "opus", "--permission-mode", "plan", "--no-session-persistence"],
+        [
+          "--print",
+          "--output-format",
+          "stream-json",
+          "--model",
+          "opus",
+          "--permission-mode",
+          "plan",
+          "--no-session-persistence",
+        ],
         {
           cwd,
           stdio: ["pipe", "pipe", "pipe"],

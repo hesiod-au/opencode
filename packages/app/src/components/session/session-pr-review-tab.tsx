@@ -298,7 +298,11 @@ export function SessionPRReviewTab() {
         </Show>
 
         {/* Empty state */}
-        <Show when={!status()?.running && progressLog().length === 0 && sessionIds().length === 0 && !orchestratorSessionId()}>
+        <Show
+          when={
+            !status()?.running && progressLog().length === 0 && sessionIds().length === 0 && !orchestratorSessionId()
+          }
+        >
           <div class="flex flex-col items-center justify-center py-12 gap-3 text-center">
             <Icon name="branch" size="large" class="text-text-weaker" />
             <div class="text-14-medium text-text-weak">No active PR review</div>

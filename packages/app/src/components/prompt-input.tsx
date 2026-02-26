@@ -634,6 +634,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     const images = imageAttachments()
     const cursorPosition = getCursorPosition(editorRef)
     const rawText = rawParts.map((p) => ("content" in p ? p.content : "")).join("")
+    console.log("[DEBUG input]", { rawText: JSON.stringify(rawText), parts: rawParts.length })
     const trimmed = rawText.replace(/\u200B/g, "").trim()
     const hasNonText = rawParts.some((part) => part.type !== "text")
     const shouldReset = trimmed.length === 0 && !hasNonText && images.length === 0

@@ -1,5 +1,6 @@
 import { Bus } from "../bus"
 import { WorkflowEvent } from "../workflow/events"
+import { WorkflowState } from "../workflow/state"
 import { TaskModeEvent } from "./events"
 import { Orchestrator } from "./orchestrator"
 import z from "zod"
@@ -19,27 +20,39 @@ export namespace TaskWorkflow {
     },
 
     async start(options) {
-      await Orchestrator.start(options)
+      const runId = WorkflowState.startRun("task")
+
+      await Orchestrator.start({ ...options, runId })
 
       if (Orchestrator.isRunning()) {
         Bus.publish(WorkflowEvent.Started, {
           workflowId: "task",
           parentSessionId: options.parentSessionId,
+          runId,
         })
       }
     },
 
     async stop(reason) {
+      const activeRun = WorkflowState.getActiveRun("task")
+
       await Orchestrator.stop(reason)
 
       Bus.publish(WorkflowEvent.Stopped, {
         workflowId: "task",
         reason,
+        runId: activeRun?.runId,
       })
+
+      if (activeRun) {
+        WorkflowState.endRun(activeRun.runId, reason)
+      }
     },
 
     getStatus() {
       const raw = Orchestrator.getStatus()
+      const activeRun = WorkflowState.getActiveRun("task")
+
       return {
         running: raw.running,
         phase: raw.phase,
@@ -47,6 +60,8 @@ export namespace TaskWorkflow {
         parentSessionId: raw.parentSessionId,
         startedAt: raw.startedAt,
         completedAt: raw.completedAt,
+        runId: activeRun?.runId,
+        progress: activeRun?.status.progress,
         stats: raw.stats,
       }
     },
@@ -63,18 +78,22 @@ export namespace TaskWorkflow {
   // Bridge: publish generic workflow events alongside task-mode events
   export function initBridge() {
     Bus.subscribe(TaskModeEvent.OrchestratorPhaseChanged, (event) => {
+      const activeRun = WorkflowState.getActiveRun("task")
       Bus.publish(WorkflowEvent.PhaseChanged, {
         workflowId: "task",
         phase: event.properties.phase,
         detail: event.properties.detail,
+        runId: activeRun?.runId,
       })
     })
 
     Bus.subscribe(TaskModeEvent.OrchestratorStopped, (event) => {
+      const activeRun = WorkflowState.getActiveRun("task")
       Bus.publish(WorkflowEvent.Stopped, {
         workflowId: "task",
         reason: event.properties.reason,
         reportSessionId: event.properties.reportSessionId,
+        runId: activeRun?.runId,
       })
     })
   }

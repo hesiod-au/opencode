@@ -289,7 +289,11 @@ export function SessionTasksTab() {
 
   const erroredTaskIds = createMemo(() => {
     if (!hasErroredTasks()) return []
-    return status()?.taskList?.tasks.filter((t) => t.status === "error").map((t) => t.id) ?? []
+    return (
+      status()
+        ?.taskList?.tasks.filter((t) => t.status === "error")
+        .map((t) => t.id) ?? []
+    )
   })
 
   const handleRetryErrored = async () => {
@@ -381,12 +385,7 @@ export function SessionTasksTab() {
       <div class="px-6 pt-4 flex flex-col gap-6">
         {/* Task Mode start controls — shown when not enabled */}
         <Show when={!loading() && !status()?.enabled}>
-          <TaskModeCard
-            status={undefined}
-            sdkUrl={sdk.url}
-            directory={sdk.directory}
-            onStatusChange={fetchStatus}
-          />
+          <TaskModeCard status={undefined} sdkUrl={sdk.url} directory={sdk.directory} onStatusChange={fetchStatus} />
         </Show>
 
         {/* Loading State */}

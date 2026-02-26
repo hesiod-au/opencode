@@ -83,7 +83,7 @@ export namespace Agent {
           PermissionNext.fromConfig({
             question: "allow",
             plan_enter: "allow",
-                      }),
+          }),
           user,
         ),
         mode: "primary",

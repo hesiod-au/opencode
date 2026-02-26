@@ -31,6 +31,28 @@ export type ProjectMeta = {
   }
 }
 
+export type WorkflowStatusType = {
+  running: boolean
+  phase?: string
+  phaseDetail?: string
+  parentSessionId?: string
+  startedAt?: number
+  completedAt?: number
+  runId?: string
+  progress?: {
+    current: number
+    total: number
+    label?: string
+  }
+  stats?: {
+    inputTokens: number
+    outputTokens: number
+    cost: number
+    modifiedFiles: string[]
+  }
+  extra?: Record<string, unknown>
+}
+
 export type State = {
   status: "loading" | "partial" | "complete"
   agent: Agent[]
@@ -63,6 +85,9 @@ export type State = {
   }
   lsp: LspStatus[]
   vcs: VcsInfo | undefined
+  workflow_status: {
+    [workflowID: string]: WorkflowStatusType
+  }
   limit: number
   message: {
     [sessionID: string]: Message[]

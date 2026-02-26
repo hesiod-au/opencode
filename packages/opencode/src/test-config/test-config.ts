@@ -159,7 +159,9 @@ export namespace TestConfigWorkflow {
     const existing = await readConfig()
     const hasExisting = existing !== undefined
 
-    ctx.progress(hasExisting ? "Found existing test-config.json, will validate and update" : "Analyzing project structure...")
+    ctx.progress(
+      hasExisting ? "Found existing test-config.json, will validate and update" : "Analyzing project structure...",
+    )
 
     const existingConfigBlock = hasExisting
       ? `\n\nAn existing test-config.json was found with this content:\n\`\`\`json\n${JSON.stringify(existing, null, 2)}\n\`\`\`\n\nValidate it and update only what's needed.`

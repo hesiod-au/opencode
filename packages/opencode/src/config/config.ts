@@ -1208,7 +1208,10 @@ export namespace Config {
           enabled: z.boolean().optional().describe("Enable PR review workflow"),
           pollIntervalMinutes: z.number().optional().describe("Minutes between comment checks (default: 10)"),
           maxCycles: z.number().optional().describe("Max review/fix cycles (default: 20)"),
-          maxRecheckAttempts: z.number().optional().describe("Max re-check attempts when no new actionable comments exist (default: 5)"),
+          maxRecheckAttempts: z
+            .number()
+            .optional()
+            .describe("Max re-check attempts when no new actionable comments exist (default: 5)"),
           testCommand: z.string().optional().describe("Test command (auto-detected if omitted)"),
           prNumber: z.number().optional().describe("PR number (auto-detected from branch)"),
           reviewRequestComment: z

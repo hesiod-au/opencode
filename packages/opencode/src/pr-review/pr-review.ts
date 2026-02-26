@@ -8,6 +8,7 @@ import { Agent } from "../agent/agent"
 import { Identifier } from "../id/id"
 import { Instance } from "../project/instance"
 import { WorkflowEvent } from "../workflow/events"
+import { WorkflowState } from "../workflow/state"
 import { PRReviewEvent } from "./events"
 import { GH } from "./gh"
 import { Workflow } from "../workflow/workflow"
@@ -26,6 +27,7 @@ export namespace PRReviewWorkflow {
     | "completing"
 
   interface State {
+    runId?: string
     running: boolean
     phase?: Phase
     phaseDetail?: string
@@ -48,7 +50,16 @@ export namespace PRReviewWorkflow {
     }
   }
 
-  let state: State | null = null
+  const instanceState = Instance.state(
+    () => ({
+      current: null as State | null,
+    }),
+    async (data) => {
+      if (data.current?.running) {
+        data.current.abortController.abort()
+      }
+    },
+  )
   type ReviewAction = "fix" | "ignore"
   type AssessedComment = GH.ReviewComment & {
     action: ReviewAction
@@ -60,6 +71,7 @@ export namespace PRReviewWorkflow {
   }
 
   function setPhase(phase: Phase, detail?: string) {
+    const state = instanceState().current
     if (!state) return
     state.phase = phase
     state.phaseDetail = detail
@@ -69,10 +81,16 @@ export namespace PRReviewWorkflow {
       workflowId: "pr-review",
       phase,
       detail,
+      runId: state.runId,
     })
+
+    if (state.runId) {
+      WorkflowState.updateStatus(state.runId, { phase, phaseDetail: detail })
+    }
   }
 
   async function logToSession(text: string): Promise<void> {
+    const state = instanceState().current
     if (!state?.orchestratorSessionId) return
     try {
       const agent = await Agent.get("build")
@@ -102,6 +120,7 @@ export namespace PRReviewWorkflow {
 
   function progress(message: string) {
     log.info("progress", { message })
+    const state = instanceState().current
     if (state) {
       state.progressLog.push({ message, timestamp: Date.now() })
       if (state.progressLog.length > 100) state.progressLog.shift()
@@ -109,6 +128,7 @@ export namespace PRReviewWorkflow {
     Bus.publish(WorkflowEvent.Progress, {
       workflowId: "pr-review",
       message,
+      runId: state?.runId,
     })
     logToSession(message).catch((err) => log.error("logToSession error", { error: err }))
   }
@@ -212,9 +232,11 @@ export namespace PRReviewWorkflow {
   }> {
     const decode = (raw: unknown) => {
       if (typeof raw !== "object" || raw === null) return []
-      const list = Array.isArray(raw) ? raw : Array.isArray((raw as { assessments?: unknown }).assessments)
-        ? (raw as { assessments: unknown }).assessments
-        : []
+      const list = Array.isArray(raw)
+        ? raw
+        : Array.isArray((raw as { assessments?: unknown }).assessments)
+          ? (raw as { assessments: unknown }).assessments
+          : []
       if (!Array.isArray(list)) return []
       return list
         .map((entry) => {
@@ -225,9 +247,9 @@ export namespace PRReviewWorkflow {
             reason?: unknown
           }
           if (typeof item.id !== "number") return undefined
-          const action = (typeof item.action === "string" && (item.action === "fix" || item.action === "ignore")
-            ? item.action
-            : "fix") as ReviewAction
+          const action = (
+            typeof item.action === "string" && (item.action === "fix" || item.action === "ignore") ? item.action : "fix"
+          ) as ReviewAction
 
           return {
             id: item.id,
@@ -235,9 +257,7 @@ export namespace PRReviewWorkflow {
             reason: typeof item.reason === "string" ? item.reason : "Automated triage",
           }
         })
-        .filter((item): item is { id: number; action: ReviewAction; reason: string } =>
-          item !== undefined,
-        )
+        .filter((item): item is { id: number; action: ReviewAction; reason: string } => item !== undefined)
     }
 
     try {
@@ -255,6 +275,8 @@ export namespace PRReviewWorkflow {
 
   async function assessComments(comments: GH.ReviewComment[]): Promise<AssessedComment[]> {
     if (comments.length === 0) return []
+
+    const state = instanceState().current
 
     const fallback = comments.map((comment) => {
       const isIgnore = isLikelyNoAction(comment.body)
@@ -330,6 +352,7 @@ ${payload}
   }
 
   async function runFixAgent(comment: AssessedComment): Promise<InvestigatedFixResult> {
+    const state = instanceState().current
     const fixSession = await Session.create({
       parentID: state?.orchestratorSessionId,
       title: `PR Review Fix — Cycle ${state?.cycleCount ?? 0}`,
@@ -417,10 +440,12 @@ If the issue is local, continue with a minimal code fix in this same message.
     },
 
     async start(options) {
-      if (state?.running) {
+      if (instanceState().current?.running) {
         log.warn("pr-review workflow already running")
         return
       }
+
+      const runId = options.runId ?? WorkflowState.startRun("pr-review")
 
       const config = await Config.get()
       const prConfig = config.prReview
@@ -430,7 +455,8 @@ If the issue is local, continue with a minimal code fix in this same message.
         title: "PR Review",
       })
 
-      state = {
+      instanceState().current = {
+        runId,
         running: true,
         orchestratorSessionId: orchestratorSession.id,
         startedAt: Date.now(),
@@ -443,9 +469,16 @@ If the issue is local, continue with a minimal code fix in this same message.
         stats: { inputTokens: 0, outputTokens: 0, cost: 0, modifiedFiles: [] },
       }
 
+      WorkflowState.updateStatus(runId, {
+        running: true,
+        parentSessionId: orchestratorSession.id,
+        startedAt: Date.now(),
+      })
+
       Bus.publish(WorkflowEvent.Started, {
         workflowId: "pr-review",
         parentSessionId: orchestratorSession.id,
+        runId,
       })
 
       // Resolve PR number from tool args, config, or auto-detect
@@ -463,7 +496,7 @@ If the issue is local, continue with a minimal code fix in this same message.
         return
       }
 
-      state.prNumber = prNumber
+      instanceState().current!.prNumber = prNumber
       progress(`Starting PR review cycle for PR #${prNumber}`)
 
       // Run the main loop
@@ -482,22 +515,35 @@ If the issue is local, continue with a minimal code fix in this same message.
     },
 
     async stop(reason) {
+      const state = instanceState().current
       if (!state) return
       log.info("stopping pr-review", { reason })
 
+      const runId = state.runId
       state.running = false
       state.completedAt = Date.now()
       state.abortController.abort()
 
+      if (runId) {
+        WorkflowState.endRun(runId, reason)
+        WorkflowState.updateStatus(runId, {
+          running: false,
+          completedAt: state.completedAt,
+        })
+      }
+
       Bus.publish(WorkflowEvent.Stopped, {
         workflowId: "pr-review",
         reason,
+        runId,
       })
 
-      state = null
+      instanceState().current = null
     },
 
     getStatus() {
+      const state = instanceState().current
+      const activeRun = WorkflowState.getActiveRun("pr-review")
       return {
         running: state?.running ?? false,
         phase: state?.phase,
@@ -505,6 +551,8 @@ If the issue is local, continue with a minimal code fix in this same message.
         parentSessionId: state?.orchestratorSessionId,
         startedAt: state?.startedAt,
         completedAt: state?.completedAt,
+        runId: state?.runId ?? activeRun?.runId,
+        progress: activeRun?.status.progress,
         stats: state?.stats,
         extra: {
           prNumber: state?.prNumber,
@@ -518,7 +566,7 @@ If the issue is local, continue with a minimal code fix in this same message.
     },
 
     isRunning() {
-      return state?.running ?? false
+      return instanceState().current?.running ?? false
     },
   }
 
@@ -529,6 +577,7 @@ If the issue is local, continue with a minimal code fix in this same message.
     reviewComment: string
     maxRecheckAttempts: number
   }) {
+    const state = instanceState().current
     if (!state) return
 
     // Get initial HEAD commit

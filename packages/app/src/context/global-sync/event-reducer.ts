@@ -315,5 +315,26 @@ export function applyDirectoryEvent(input: {
       input.loadLsp()
       break
     }
+    case "workflow.status_changed": {
+      const props = event.properties as {
+        workflowId: string
+        runId: string
+        status: {
+          running: boolean
+          phase?: string
+          phaseDetail?: string
+          parentSessionId?: string
+          startedAt?: number
+          completedAt?: number
+          progress?: {
+            current: number
+            total: number
+            label?: string
+          }
+        }
+      }
+      input.setStore("workflow_status", props.workflowId, reconcile(props.status))
+      break
+    }
   }
 }

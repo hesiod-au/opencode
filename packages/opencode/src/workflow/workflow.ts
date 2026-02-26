@@ -21,6 +21,7 @@ export namespace Workflow {
   export interface StartOptions {
     parentSessionId?: string
     userPrompt?: string
+    runId?: string
   }
 
   export type StopReason = "completed" | "error" | "manual"
@@ -32,6 +33,12 @@ export namespace Workflow {
     parentSessionId?: string
     startedAt?: number
     completedAt?: number
+    runId?: string
+    progress?: {
+      current: number
+      total: number
+      label?: string
+    }
     stats?: {
       inputTokens: number
       outputTokens: number
