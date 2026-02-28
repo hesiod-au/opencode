@@ -61,7 +61,7 @@ export namespace PRReviewWorkflow {
       }
     },
   )
-  type ReviewAction = "fix" | "ignore"
+  type ReviewAction = "fix" | "ignore" | "defer"
   type AssessedComment = GH.ReviewComment & {
     action: ReviewAction
     reason: string
@@ -229,7 +229,10 @@ export namespace PRReviewWorkflow {
           }
           if (typeof item.id !== "number") return undefined
           const action = (
-            typeof item.action === "string" && (item.action === "fix" || item.action === "ignore") ? item.action : "fix"
+            typeof item.action === "string" &&
+            (item.action === "fix" || item.action === "ignore" || item.action === "defer")
+              ? item.action
+              : "fix"
           ) as ReviewAction
 
           return {
@@ -290,9 +293,10 @@ export namespace PRReviewWorkflow {
 Classify each review comment as one of:
 - fix: actionable and should be investigated before deciding how to resolve
 - ignore: non-actionable (ack/nice/thank-you/looks good)
+- defer: valid issue but NOT relevant to this PR's changes (pre-existing problem, out-of-scope refactor, etc.)
 
 For each item, output strict JSON with this shape:
-{"assessments":[{"id":123,"action":"fix|ignore","reason":"short reason"}]}
+{"assessments":[{"id":123,"action":"fix|ignore|defer","reason":"short reason"}]}
 
 Only output JSON, no markdown.
 
@@ -330,6 +334,24 @@ ${payload}
         reason: item.reason,
       }
     })
+  }
+
+  async function writeUnresolvedIssues(prNumber: number, deferred: AssessedComment[]) {
+    const prInfo = await GH.getPRInfo(prNumber)
+    const branch = prInfo.headRefName
+    const dir = `${Instance.directory}/docs/unresolved_issues`
+    await Bun.spawn(["mkdir", "-p", dir], { cwd: Instance.directory }).exited
+    const filePath = `${dir}/${branch}.md`
+    const file = Bun.file(filePath)
+    const existing = (await file.exists()) ? await file.text() : ""
+    const entries = deferred
+      .map((c) => {
+        const location = c.path ? `${c.path}${c.line ? `:${c.line}` : ""}` : "General"
+        return `### ${location}\n- **Reviewer:** ${c.user.login}\n- **Comment:** ${c.body}\n- **Reason deferred:** ${c.reason}\n`
+      })
+      .join("\n")
+    const header = existing ? "" : `# Unresolved Issues — ${branch}\n\nValid issues deferred from PR review as out-of-scope.\n\n`
+    await Bun.write(filePath, existing + header + entries)
   }
 
   async function runFixAgent(comment: AssessedComment): Promise<InvestigatedFixResult> {
@@ -593,6 +615,13 @@ If the issue is local, continue with a minimal code fix in this same message.
       const unseen = comments.filter((comment) => !state?.seenCommentIds.has(comment.id))
       unseen.forEach((comment) => state?.seenCommentIds.add(comment.id))
       const assessed = await assessComments(unseen)
+
+      const deferred = assessed.filter((c) => c.action === "defer")
+      if (deferred.length > 0) {
+        await writeUnresolvedIssues(opts.prNumber, deferred)
+        progress(`Deferred ${deferred.length} comment(s) as valid but out-of-scope`)
+      }
+
       const actionable = assessed.filter((comment) => comment.action === "fix")
 
       if (actionable.length === 0) {
