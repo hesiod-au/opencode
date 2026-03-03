@@ -40,6 +40,7 @@ export namespace ClaudeCli {
         "claude",
         [
           "--print",
+          "--verbose",
           "--output-format",
           "stream-json",
           "--model",
