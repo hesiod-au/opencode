@@ -9,6 +9,7 @@ import { Instance } from "../project/instance"
 import { Bus } from "../bus"
 import { Config } from "../config/config"
 import { TestFixEvent } from "./events"
+import { WorkflowStore } from "../workflow/store"
 import { spawn } from "child_process"
 import type { TestFix } from "./types"
 
@@ -21,6 +22,7 @@ export namespace FixAgent {
     suiteCommand: string
     fileCommand: string | null
     parentSessionId: string
+    runId?: string
     abort: AbortSignal
   }
 
@@ -215,7 +217,7 @@ ${contractDocs.slice(0, 10000)}${contractDocs.length > 10000 ? "\n... (truncated
   }
 
   export async function run(options: Options): Promise<Result> {
-    const { file, type, suiteCommand, fileCommand, parentSessionId, abort } = options
+    const { file, type, suiteCommand, fileCommand, parentSessionId, abort, runId } = options
 
     log.info("starting fix agent", { file, type })
 
@@ -223,6 +225,14 @@ ${contractDocs.slice(0, 10000)}${contractDocs.length > 10000 ? "\n... (truncated
       parentID: parentSessionId,
       title: `Fix: ${file}`,
     })
+    if (runId) {
+      await WorkflowStore.linkSession({
+        runId,
+        sessionId: session.id,
+        role: "child",
+        parentSessionId,
+      })
+    }
 
     SessionStatus.set(session.id, { type: "busy" })
 
@@ -251,7 +261,13 @@ ${contractDocs.slice(0, 10000)}${contractDocs.length > 10000 ? "\n... (truncated
       if (initial.success) {
         log.info("test already passing", { file })
         SessionStatus.set(session.id, { type: "idle" })
-        Bus.publish(TestFixEvent.FixAgentCompleted, { type, file, sessionId: session.id, status: "passing", retries: 0 })
+        Bus.publish(TestFixEvent.FixAgentCompleted, {
+          type,
+          file,
+          sessionId: session.id,
+          status: "passing",
+          retries: 0,
+        })
         return { file, status: "passing", retries: 0, sessionId: session.id }
       }
 

@@ -9,6 +9,7 @@ import { Identifier } from "../id/id"
 import { Instance } from "../project/instance"
 import { WorkflowEvent } from "../workflow/events"
 import { WorkflowState } from "../workflow/state"
+import { WorkflowStore } from "../workflow/store"
 import { PRReviewEvent } from "./events"
 import { GH } from "./gh"
 import { Workflow } from "../workflow/workflow"
@@ -350,7 +351,9 @@ ${payload}
         return `### ${location}\n- **Reviewer:** ${c.user.login}\n- **Comment:** ${c.body}\n- **Reason deferred:** ${c.reason}\n`
       })
       .join("\n")
-    const header = existing ? "" : `# Unresolved Issues — ${branch}\n\nValid issues deferred from PR review as out-of-scope.\n\n`
+    const header = existing
+      ? ""
+      : `# Unresolved Issues — ${branch}\n\nValid issues deferred from PR review as out-of-scope.\n\n`
     await Bun.write(filePath, existing + header + entries)
   }
 
@@ -360,6 +363,14 @@ ${payload}
       parentID: state?.orchestratorSessionId,
       title: `PR Review Fix — Cycle ${state?.cycleCount ?? 0}`,
     })
+    if (state?.runId) {
+      await WorkflowStore.linkSession({
+        runId: state.runId,
+        sessionId: fixSession.id,
+        role: "fix",
+        parentSessionId: state.orchestratorSessionId,
+      })
+    }
     if (state) state.sessionIds.push(fixSession.id)
 
     const location = comment.path ? `File: ${comment.path}${comment.line ? `:${comment.line}` : ""}` : "General comment"
@@ -376,7 +387,7 @@ Then decide the best action:
 
 Before continuing, if escalation is required, invoke:
 tool: workflow_task
-userPrompt: Original issue: ${commentText}
+userPrompt: Original issue: (use the Issue section above)
 Investigation outcome: {brief finding + category + rationale}
 
 If the issue is local, continue with a minimal code fix in this same message.
@@ -448,14 +459,16 @@ If the issue is local, continue with a minimal code fix in this same message.
         return
       }
 
-      const runId = options.runId ?? WorkflowState.startRun("pr-review")
+      const runId = options.runId ?? WorkflowState.startRun("pr-review", options.parentSessionId)
 
       const config = await Config.get()
       const prConfig = config.prReview
 
       // Initialize orchestrator session (use existing or create new)
       const orchestratorSessionId = await WorkflowOrchestrator.initializeOrchestrator(
+        "pr-review",
         "PR Review",
+        runId,
         options.parentSessionId,
       )
 
@@ -716,6 +729,14 @@ If the issue is local, continue with a minimal code fix in this same message.
                 parentID: state.orchestratorSessionId,
                 title: `Test Fix — Cycle ${cycle}, Attempt ${attempt}`,
               })
+              if (state.runId) {
+                await WorkflowStore.linkSession({
+                  runId: state.runId,
+                  sessionId: testFixSession.id,
+                  role: "child",
+                  parentSessionId: state.orchestratorSessionId,
+                })
+              }
 
               const agent = await Agent.get("build")
               if (!agent) break

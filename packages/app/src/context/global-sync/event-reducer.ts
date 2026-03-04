@@ -10,6 +10,8 @@ import type {
   Session,
   SessionStatus,
   Todo,
+  WorkflowRun,
+  WorkflowSessionLink,
 } from "@opencode-ai/sdk/v2/client"
 import type { State, VcsCache } from "./types"
 import { trimSessions } from "./session-trim"
@@ -77,6 +79,7 @@ export function applyDirectoryEvent(input: {
   directory: string
   loadLsp: () => void
   vcsCache?: VcsCache
+  getSession?: (sessionID: string) => Promise<Session | undefined>
 }) {
   const event = input.event
   switch (event.type) {
@@ -334,6 +337,35 @@ export function applyDirectoryEvent(input: {
         }
       }
       input.setStore("workflow_status", props.workflowId, reconcile(props.status))
+      break
+    }
+    case "workflow.run.updated": {
+      const props = event.properties as { run?: WorkflowRun; info?: WorkflowRun }
+      const run = props.run ?? props.info
+      if (!run) break
+      input.setStore("workflow_run", run.runId, reconcile(run))
+      break
+    }
+    case "workflow.session.linked": {
+      const props = event.properties as { link?: WorkflowSessionLink; info?: WorkflowSessionLink }
+      const link = props.link ?? props.info
+      if (!link) break
+      input.setStore("workflow_session", link.sessionId, reconcile(link))
+      if (input.store.session.some((s) => s.id === link.sessionId)) break
+      if (!input.getSession) break
+      void input.getSession(link.sessionId).then((info) => {
+        if (!info?.id) return
+        const result = Binary.search(input.store.session, info.id, (s) => s.id)
+        if (result.found) {
+          input.setStore("session", result.index, reconcile(info))
+          return
+        }
+        const next = input.store.session.slice()
+        next.splice(result.index, 0, info)
+        const trimmed = trimSessions(next, { limit: input.store.limit, permission: input.store.permission })
+        input.setStore("session", reconcile(trimmed, { key: "id" }))
+        if (!info.parentID) input.setStore("sessionTotal", (value) => value + 1)
+      })
       break
     }
   }

@@ -22,6 +22,7 @@ export namespace TestFixOrchestrator {
     phase?: Phase
     phaseDetail?: string
     parentSessionId?: string
+    runId?: string
     startedAt?: number
     completedAt?: number
     abort?: AbortController
@@ -76,6 +77,7 @@ export namespace TestFixOrchestrator {
     }
 
     state.running = true
+    state.runId = options.runId
     state.startedAt = Date.now()
     state.completedAt = undefined
     state.groupResults = []
@@ -85,7 +87,12 @@ export namespace TestFixOrchestrator {
     const abort = new AbortController()
     state.abort = abort
 
-    const parentSessionId = await WorkflowOrchestrator.initializeOrchestrator("Test Fix", options.parentSessionId)
+    const parentSessionId = await WorkflowOrchestrator.initializeOrchestrator(
+      "test-fix",
+      "Test Fix",
+      options.runId,
+      options.parentSessionId,
+    )
     state.parentSessionId = parentSessionId
 
     WorkflowOrchestrator.setBusy(parentSessionId)
@@ -136,6 +143,7 @@ export namespace TestFixOrchestrator {
           type: group.type,
           method: group.method,
           parentSessionId,
+          runId: state.runId,
           concurrency,
           abort: abort.signal,
         }),
@@ -197,7 +205,7 @@ export namespace TestFixOrchestrator {
         allPassing,
       }
 
-      const reportSessionId = await TestFixReport.create(parentSessionId, report)
+      const reportSessionId = await TestFixReport.create(parentSessionId, report, state.runId)
       state.reportSessionId = reportSessionId
 
       // Phase 5: Done

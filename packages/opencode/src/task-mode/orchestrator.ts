@@ -17,6 +17,7 @@ import { Storage } from "../storage/storage"
 import { Snapshot } from "../snapshot"
 import { Workflow } from "../workflow/workflow"
 import { WorkflowState } from "../workflow/state"
+import { WorkflowStore } from "../workflow/store"
 import fs from "fs/promises"
 import path from "path"
 import { WorkflowOrchestrator } from "../workflow/orchestrator"
@@ -160,6 +161,14 @@ export namespace Orchestrator {
         parentID: parentSessionId,
         title: "Task Mode Final Report",
       })
+      if (state?.runId) {
+        await WorkflowStore.linkSession({
+          runId: state.runId,
+          sessionId: reportSession.id,
+          role: "child",
+          parentSessionId,
+        })
+      }
 
       const counts = TaskList.getCounts(taskList)
 
@@ -539,6 +548,15 @@ ${
       parentID: parentSessionId,
       title: `E2E Fix: ${e2eTestName}`,
     })
+    const state = instanceState().current
+    if (state?.runId) {
+      await WorkflowStore.linkSession({
+        runId: state.runId,
+        sessionId: fixSession.id,
+        role: "child",
+        parentSessionId,
+      })
+    }
 
     // Build context with all task descriptions
     const taskDescriptions: string[] = []
@@ -764,7 +782,9 @@ The E2E test validates that all components work together correctly. Focus on int
 
     // Initialize orchestrator session (use existing or create new)
     const orchestratorSessionId = await WorkflowOrchestrator.initializeOrchestrator(
+      "task",
       "Task Mode",
+      options?.runId,
       options?.parentSessionId,
     )
     log.info("orchestrator initialized", {
@@ -950,6 +970,7 @@ The E2E test validates that all components work together correctly. Focus on int
       const planningResult = await PlanningAgent.generatePlan({
         paths,
         parentSessionId: instanceState().current!.parentSessionId,
+        runId: instanceState().current!.runId,
         userPrompt: options?.userPrompt,
         disabledTools: taskDisabledTools,
       })
@@ -974,6 +995,7 @@ The E2E test validates that all components work together correctly. Focus on int
         const testWriterResult = await TestWriterAgent.run({
           paths,
           parentSessionId: instanceState().current!.parentSessionId,
+          runId: instanceState().current!.runId,
           planningConversation,
           disabledTools: taskDisabledTools,
         })
@@ -1385,6 +1407,7 @@ The E2E test validates that all components work together correctly. Focus on int
       taskFilePath,
       paths: state.paths,
       parentSessionId: state.parentSessionId,
+      runId: state.runId,
       disabledTools: Workflow.buildDisabledTools({ id: "task", recursive: false }),
     })
 

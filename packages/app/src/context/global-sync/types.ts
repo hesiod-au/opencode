@@ -16,6 +16,8 @@ import type {
   SessionStatus,
   Todo,
   VcsInfo,
+  WorkflowRun,
+  WorkflowSessionLink,
 } from "@opencode-ai/sdk/v2/client"
 import type { Accessor } from "solid-js"
 import type { SetStoreFunction, Store } from "solid-js/store"
@@ -87,6 +89,12 @@ export type State = {
   vcs: VcsInfo | undefined
   workflow_status: {
     [workflowID: string]: WorkflowStatusType
+  }
+  workflow_run: {
+    [runID: string]: WorkflowRun
+  }
+  workflow_session: {
+    [sessionID: string]: WorkflowSessionLink
   }
   limit: number
   message: {

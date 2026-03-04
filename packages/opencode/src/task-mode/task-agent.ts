@@ -13,6 +13,7 @@ import { Collision } from "./collision"
 import { Agent } from "../agent/agent"
 import { Instance } from "../project/instance"
 import { Config } from "../config/config"
+import { WorkflowStore } from "../workflow/store"
 import { spawn } from "child_process"
 import path from "path"
 import fs from "fs/promises"
@@ -302,6 +303,7 @@ ${guardrails}
     taskFilePath: string
     paths: TaskList.Paths
     parentSessionId?: string
+    runId?: string
     agent?: string
     model?: { providerID: string; modelID: string }
     disabledTools?: Record<string, false>
@@ -321,7 +323,16 @@ ${guardrails}
   }
 
   export async function run(options: TaskAgentOptions): Promise<TaskAgentResult> {
-    const { taskId, taskTitle, taskDescription, taskFilePath, paths, parentSessionId, agent: agentName } = options
+    const {
+      taskId,
+      taskTitle,
+      taskDescription,
+      taskFilePath,
+      paths,
+      parentSessionId,
+      agent: agentName,
+      runId,
+    } = options
 
     log.info("starting task agent", { taskId, taskTitle })
 
@@ -330,6 +341,14 @@ ${guardrails}
       parentID: parentSessionId,
       title: `Task ${taskId}: ${taskTitle}`,
     })
+    if (runId) {
+      await WorkflowStore.linkSession({
+        runId,
+        sessionId: session.id,
+        role: "task",
+        parentSessionId,
+      })
+    }
 
     // Set session status to busy
     SessionStatus.set(session.id, { type: "busy" })
