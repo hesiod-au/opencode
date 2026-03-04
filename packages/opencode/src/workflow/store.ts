@@ -183,12 +183,21 @@ export namespace WorkflowStore {
       parentSessionId: input.parentSessionId,
       createdAt: input.createdAt ?? Date.now(),
     }
-    await Storage.write(["workflow_session", Instance.project.id, input.sessionId], link)
+    await Storage.write(["workflow_session", Instance.project.id, input.runId, input.sessionId], link)
     return link
   }
 
   export async function unlinkSession(sessionId: string) {
-    await Storage.remove(["workflow_session", Instance.project.id, sessionId])
+    const keys = await Storage.list(["workflow_session", Instance.project.id])
+    const items = await Promise.all(
+      keys.map((key) =>
+        Storage.read<WorkflowSessionLink>(key)
+          .then((link) => ({ key, link }))
+          .catch(() => undefined),
+      ),
+    )
+    const list = items.filter(keep).filter((item) => item.link.sessionId === sessionId)
+    await Promise.all(list.map((item) => Storage.remove(item.key)))
   }
 
   export async function getRun(runId: string) {
@@ -220,7 +229,18 @@ export namespace WorkflowStore {
   }
 
   export async function getRunBySession(sessionId: string) {
-    const link = await Storage.read<WorkflowSessionLink>(["workflow_session", Instance.project.id, sessionId])
+    const keys = await Storage.list(["workflow_session", Instance.project.id])
+    const items = await Promise.all(keys.map((key) => Storage.read<WorkflowSessionLink>(key).catch(() => undefined)))
+    const link = items
+      .filter(keep)
+      .filter((item) => item.sessionId === sessionId)
+      .reduce<WorkflowSessionLink | undefined>(
+        (latest, item) => (latest && latest.createdAt > item.createdAt ? latest : item),
+        undefined,
+      )
+    if (!link) {
+      throw new Storage.NotFoundError({ message: `Workflow session link not found: ${sessionId}` })
+    }
     return Storage.read<WorkflowRun>(["workflow_run", Instance.project.id, link.runId])
   }
 }

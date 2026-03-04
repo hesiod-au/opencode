@@ -30,7 +30,6 @@ export namespace WorkflowOrchestrator {
           sessionId: parentSessionId,
           workflowId,
           role: "orchestrator",
-          parentSessionId,
         }).catch((err) => {
           log.error("failed to link orchestrator session", { error: err, runId, sessionId: parentSessionId })
         })
