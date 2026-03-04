@@ -3,6 +3,7 @@ import { Session } from "../session"
 import { Agent } from "../agent/agent"
 import { Identifier } from "../id/id"
 import { Instance } from "../project/instance"
+import { WorkflowStore } from "../workflow/store"
 import type { TestFix } from "./types"
 
 export namespace TestFixReport {
@@ -24,12 +25,22 @@ export namespace TestFixReport {
   export async function create(
     parentSessionId: string,
     report: TestFix.Report,
+    runId?: string,
   ): Promise<string | undefined> {
     try {
       const reportSession = await Session.create({
         parentID: parentSessionId,
         title: "Test Fix Report",
       })
+      if (runId) {
+        await WorkflowStore.linkSession({
+          runId,
+          sessionId: reportSession.id,
+          workflowId: "test-fix",
+          role: "report",
+          parentSessionId,
+        })
+      }
 
       const model = await resolveModel()
       const now = Date.now()
@@ -236,7 +247,13 @@ ${
       detail += `\n| File | Status | Retries |\n|------|--------|---------|`
       for (const f of group.files) {
         const statusIcon =
-          f.status === "passing" ? "Pass" : f.status === "failing" ? "Fail" : f.status === "erroring" ? "Error" : "Invalid"
+          f.status === "passing"
+            ? "Pass"
+            : f.status === "failing"
+              ? "Fail"
+              : f.status === "erroring"
+                ? "Error"
+                : "Invalid"
         detail += `\n| \`${f.file}\` | ${statusIcon} | ${f.retries} |`
       }
     }

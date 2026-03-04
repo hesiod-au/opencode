@@ -11,6 +11,7 @@ import { TaskModeEvent } from "./events"
 import { Instance } from "../project/instance"
 import { PlanningPrompts } from "./planning-prompts"
 import { ClaudeCli } from "./claude-cli"
+import { WorkflowStore } from "../workflow/store"
 import fs from "fs/promises"
 
 export namespace PlanningAgent {
@@ -54,6 +55,7 @@ export namespace PlanningAgent {
   export interface PlanningOptions {
     paths: TaskList.Paths
     parentSessionId?: string
+    runId?: string
     context?: string
     userPrompt?: string
     disabledTools?: Record<string, false>
@@ -67,10 +69,10 @@ export namespace PlanningAgent {
   }
 
   export async function generatePlan(options: PlanningOptions): Promise<PlanningResult> {
-    const { paths, parentSessionId, context, userPrompt } = options
+    const { paths, parentSessionId, context, userPrompt, runId } = options
     log.info("starting planning agent", { taskListPath: paths.taskListPath })
 
-    const sessionId = await resolveSession(parentSessionId)
+    const sessionId = await resolveSession(parentSessionId, runId)
     Bus.publish(TaskModeEvent.PlanningStarted, { sessionId })
 
     try {
@@ -213,11 +215,20 @@ export namespace PlanningAgent {
     }
   }
 
-  async function resolveSession(parentSessionId?: string): Promise<string> {
+  async function resolveSession(parentSessionId?: string, runId?: string): Promise<string> {
     const session = await Session.create({
       parentID: parentSessionId,
       title: "Task Planning Session",
     })
+    if (runId) {
+      await WorkflowStore.linkSession({
+        runId,
+        sessionId: session.id,
+        workflowId: "task",
+        role: "child",
+        parentSessionId,
+      })
+    }
     // Auto-allow all permissions to prevent blocking on "ask" prompts
     // in the child session where no user is watching.
     // Deny question tool since no user is available to answer.

@@ -8,6 +8,8 @@ import { Instance } from "../project/instance"
 import { WorkflowEvent } from "../workflow/events"
 import { TestConfigEvent } from "./events"
 import { ComposableWorkflow } from "../workflow/composable"
+import { WorkflowState } from "../workflow/state"
+import { WorkflowStore } from "../workflow/store"
 import type { Workflow } from "../workflow/workflow"
 import fs from "fs/promises"
 import path from "path"
@@ -128,6 +130,16 @@ export namespace TestConfigWorkflow {
       parentID: ctx.parentSessionId,
       title: "Test Config — Analysis",
     })
+    const runId = WorkflowState.getActiveRun("test-config")?.runId
+    if (runId) {
+      await WorkflowStore.linkSession({
+        runId,
+        sessionId: orchestratorSession.id,
+        workflowId: "test-config",
+        role: "child",
+        parentSessionId: ctx.parentSessionId,
+      })
+    }
     const sessionId = orchestratorSession.id
 
     const existing = await readConfig()
@@ -286,6 +298,16 @@ Notes:
       parentID: ctx.parentSessionId,
       title: "Test Config — Validation",
     })
+    const runId = WorkflowState.getActiveRun("test-config")?.runId
+    if (runId) {
+      await WorkflowStore.linkSession({
+        runId,
+        sessionId: validateSession.id,
+        workflowId: "test-config",
+        role: "child",
+        parentSessionId: ctx.parentSessionId,
+      })
+    }
 
     const runnableBlock = validationPlan.runnable.length
       ? validationPlan.runnable

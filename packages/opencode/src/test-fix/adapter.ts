@@ -13,7 +13,7 @@ export namespace TestFixWorkflow {
     recursive: false,
 
     async start(options) {
-      const runId = WorkflowState.startRun("test-fix")
+      const runId = WorkflowState.startRun("test-fix", options.parentSessionId)
 
       await TestFixOrchestrator.start({ ...options, runId })
 

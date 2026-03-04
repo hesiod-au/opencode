@@ -20,7 +20,7 @@ export namespace TaskWorkflow {
     },
 
     async start(options) {
-      const runId = WorkflowState.startRun("task")
+      const runId = WorkflowState.startRun("task", options.parentSessionId)
 
       await Orchestrator.start({ ...options, runId })
 

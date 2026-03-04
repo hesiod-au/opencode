@@ -3,6 +3,7 @@ import { SessionStatus } from "../session/status"
 import { Agent } from "../agent/agent"
 import { Identifier } from "../id/id"
 import { Log } from "../util/log"
+import { WorkflowStore } from "./store"
 
 export namespace WorkflowOrchestrator {
   const log = Log.create({ service: "workflow-orchestrator" })
@@ -15,9 +16,24 @@ export namespace WorkflowOrchestrator {
    * @param parentSessionId - Optional existing session ID to use as orchestrator
    * @returns Guaranteed non-null orchestrator session ID
    */
-  export async function initializeOrchestrator(workflowName: string, parentSessionId?: string): Promise<string> {
+  export async function initializeOrchestrator(
+    workflowId: string,
+    workflowName: string,
+    runId?: string,
+    parentSessionId?: string,
+  ): Promise<string> {
     if (parentSessionId) {
       log.info("using existing session as orchestrator", { workflowName, sessionId: parentSessionId })
+      if (runId) {
+        WorkflowStore.linkSession({
+          runId,
+          sessionId: parentSessionId,
+          workflowId,
+          role: "orchestrator",
+        }).catch((err) => {
+          log.error("failed to link orchestrator session", { error: err, runId, sessionId: parentSessionId })
+        })
+      }
       return parentSessionId
     }
 
@@ -26,6 +42,17 @@ export namespace WorkflowOrchestrator {
     })
 
     log.info("created new orchestrator session", { workflowName, sessionId: session.id })
+    if (runId) {
+      WorkflowStore.linkSession({
+        runId,
+        sessionId: session.id,
+        workflowId,
+        role: "orchestrator",
+        parentSessionId,
+      }).catch((err) => {
+        log.error("failed to link orchestrator session", { error: err, runId, sessionId: session.id })
+      })
+    }
     return session.id
   }
 

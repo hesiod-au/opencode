@@ -280,6 +280,11 @@ function createGlobalSync() {
           .lsp.status()
           .then((x) => setStore("lsp", x.data ?? []))
       },
+      getSession: (sessionID) =>
+        sdkFor(directory)
+          .session.get({ sessionID })
+          .then((x) => x.data)
+          .catch(() => undefined),
     })
   })
 

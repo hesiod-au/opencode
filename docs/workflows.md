@@ -30,29 +30,30 @@ Configure in `opencode.json`:
 
 ### Options
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `enabled` | true | Enable task mode |
-| `listPath` | `.opencode/tasks/default/task_list.md` | Task list file path |
-| `requirePlanConfirmation` | false | Require approval before execution |
-| `maxConcurrentTasks` | 3 | Max parallel task agents |
-| `agentLaunchStaggerSeconds` | 5 | Delay between agent launches |
-| `pollIntervalMs` | 1000 | Task list polling interval |
-| `tddMode` | false | Enable test-driven development |
-| `maxTestRetries` | 10 | Max test fix attempts per task |
-| `taskPromptGuardrails` | - | Extra instructions for all tasks |
+| Option                      | Default                                | Description                       |
+| --------------------------- | -------------------------------------- | --------------------------------- |
+| `enabled`                   | true                                   | Enable task mode                  |
+| `listPath`                  | `.opencode/tasks/default/task_list.md` | Task list file path               |
+| `requirePlanConfirmation`   | false                                  | Require approval before execution |
+| `maxConcurrentTasks`        | 3                                      | Max parallel task agents          |
+| `agentLaunchStaggerSeconds` | 5                                      | Delay between agent launches      |
+| `pollIntervalMs`            | 1000                                   | Task list polling interval        |
+| `tddMode`                   | false                                  | Enable test-driven development    |
+| `maxTestRetries`            | 10                                     | Max test fix attempts per task    |
+| `taskPromptGuardrails`      | -                                      | Extra instructions for all tasks  |
 
 ### How Task Mode Works
 
 1. **Planning** - Analyzes request, generates task list
 2. **Test Writing** (if TDD) - Generates tests for each task
-3. **Execution** - Launches task agents in parallel (respects dependencies)
+3. **Execution** - Launches task agents in parallel; dependencies are optional and only used when tasks share files or rely on outputs/research/changes from another task
 4. **E2E Testing** (if TDD) - Runs end-to-end tests
 5. **Completion** - Generates final report
 
 ### Starting Task Mode
 
 **Tool invocation:**
+
 ```
 Implement user authentication using task mode
 ```
@@ -60,6 +61,7 @@ Implement user authentication using task mode
 **UI:** Navigate to Task Mode tab, click "Start"
 
 **CLI:**
+
 ```bash
 opencode workflow start task-mode
 ```
@@ -82,15 +84,15 @@ opencode workflow start task-mode
 
 ### Options
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `enabled` | true | Enable PR review |
-| `prNumber` | auto-detect | PR number to review |
-| `pollIntervalMinutes` | 10 | Minutes between comment checks |
-| `maxCycles` | 20 | Max review/fix cycles |
-| `maxRecheckAttempts` | 5 | Max checks when no new comments |
-| `testCommand` | auto-detect | Test command to run |
-| `reviewRequestComment` | `@codex review` | Comment after each cycle |
+| Option                 | Default         | Description                     |
+| ---------------------- | --------------- | ------------------------------- |
+| `enabled`              | true            | Enable PR review                |
+| `prNumber`             | auto-detect     | PR number to review             |
+| `pollIntervalMinutes`  | 10              | Minutes between comment checks  |
+| `maxCycles`            | 20              | Max review/fix cycles           |
+| `maxRecheckAttempts`   | 5               | Max checks when no new comments |
+| `testCommand`          | auto-detect     | Test command to run             |
+| `reviewRequestComment` | `@codex review` | Comment after each cycle        |
 
 ### How PR Review Works
 
@@ -108,6 +110,7 @@ opencode workflow start task-mode
 **PR Number:** Uses `gh pr view --json number` if not configured
 
 **Test Command:** Detects based on project:
+
 - Python → `pytest`
 - Go → `go test ./...`
 - Bun → `bun test`
@@ -117,6 +120,7 @@ opencode workflow start task-mode
 ### Starting PR Review
 
 **Tool invocation:**
+
 ```
 Address the PR review feedback
 ```
@@ -124,6 +128,7 @@ Address the PR review feedback
 **UI:** Navigate to PR Review tab, click "Start"
 
 **CLI:**
+
 ```bash
 opencode workflow start pr-review
 ```
@@ -138,6 +143,7 @@ All workflows create session trees:
 - **UI-started**: Creates "Orchestrator: {Workflow Name}" session
 
 The orchestrator:
+
 - Parents all child sessions
 - Aggregates child status
 - Receives progress updates
@@ -147,6 +153,7 @@ The orchestrator:
 ### Child Sessions
 
 **Task Mode creates:**
+
 - Planning session
 - Test writing session (TDD mode)
 - One session per task agent
@@ -154,6 +161,7 @@ The orchestrator:
 - Final report session
 
 **PR Review creates:**
+
 - Fix session per actionable comment
 - Test fix sessions (if tests fail)
 
@@ -177,6 +185,7 @@ Parent sessions aggregate child status:
 - Shows **idle** otherwise
 
 This means:
+
 - Task agents running → orchestrator shows working animation
 - PR review polling → orchestrator shows waiting animation
 - All tasks complete → orchestrator shows no animation
@@ -222,11 +231,13 @@ This means:
 ## Workflow State
 
 State persisted per-project in:
+
 ```
 ~/.claude/projects/{project-hash}/workflow-state/
 ```
 
 Each workflow run gets unique `runId` tracking:
+
 - Start/completion timestamps
 - Current phase
 - Parent session ID
@@ -244,13 +255,13 @@ const client = new OpencodeClient({ baseURL: "http://localhost:4096" })
 await client.workflow.start({
   workflowId: "task-mode",
   parentSessionId: mySessionId, // optional
-  userPrompt: "Implement user authentication"
+  userPrompt: "Implement user authentication",
 })
 
 // Check status
 const status = await client.workflow.getStatus("task-mode")
-console.log(status.running)        // true
-console.log(status.phase)          // "executing"
+console.log(status.running) // true
+console.log(status.phase) // "executing"
 console.log(status.parentSessionId) // orchestrator session ID
 
 // Task mode specific
@@ -268,21 +279,25 @@ await client.workflow.stop("task-mode")
 ## Troubleshooting
 
 **Task mode won't start**
+
 - Check `taskMode.enabled` is not false
 - Verify task list path exists
 - Check agent configuration
 
 **PR review not detecting PR**
+
 - Run `gh pr view` to verify GitHub CLI access
 - Set `prReview.prNumber` explicitly
 - Check `gh auth status`
 
 **Tests failing repeatedly**
+
 - Verify `testCommand` is correct
 - Increase `maxTestRetries`
 - Review test fix sessions for issues
 
 **Orchestrator not showing progress**
+
 - Check workflow is running (`getStatus()`)
 - Verify WebSocket connection
 - Refresh UI to reconnect
@@ -307,30 +322,34 @@ await client.workflow.stop("task-mode")
 ### Key Patterns
 
 **Orchestrator Initialization:**
+
 ```typescript
 const orchestratorSessionId = await WorkflowOrchestrator.initializeOrchestrator(
   "Workflow Name",
-  options.parentSessionId
+  options.parentSessionId,
 )
 ```
 
 **Progress Logging:**
+
 ```typescript
 await WorkflowOrchestrator.logProgress(orchestratorSessionId, "Progress message")
 ```
 
 **Status Management:**
+
 ```typescript
-WorkflowOrchestrator.setBusy(orchestratorSessionId)   // Start working
+WorkflowOrchestrator.setBusy(orchestratorSessionId) // Start working
 WorkflowOrchestrator.setWaiting(orchestratorSessionId) // Start waiting
-WorkflowOrchestrator.setIdle(orchestratorSessionId)   // Complete
+WorkflowOrchestrator.setIdle(orchestratorSessionId) // Complete
 ```
 
 **Child Session Creation:**
+
 ```typescript
 const session = await Session.create({
   parentID: orchestratorSessionId,
-  title: "Child Session Title"
+  title: "Child Session Title",
 })
 SessionStatus.set(session.id, { type: "busy" })
 // ... do work ...
@@ -343,15 +362,15 @@ SessionStatus.set(session.id, { type: "idle" })
 // Frontend aggregation (sidebar-items.tsx)
 const aggregatedStatus = createMemo(() => {
   const ownStatus = sessionStore.session_status[sessionId]
-  const childStatuses = childIds.map(id => sessionStore.session_status[id])
+  const childStatuses = childIds.map((id) => sessionStore.session_status[id])
 
   // Any child busy → parent shows busy
-  if (childStatuses.some(s => s.type === "busy" || s.type === "retry")) {
+  if (childStatuses.some((s) => s.type === "busy" || s.type === "retry")) {
     return { type: "busy" }
   }
 
   // Some children waiting, none busy → parent shows waiting
-  if (childStatuses.some(s => s.type === "waiting")) {
+  if (childStatuses.some((s) => s.type === "waiting")) {
     return { type: "waiting" }
   }
 

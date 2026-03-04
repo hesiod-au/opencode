@@ -81,10 +81,12 @@ export namespace ComposableWorkflow {
           return
         }
 
-        const runId = opts.runId ?? WorkflowState.startRun(options.id)
+        const runId = opts.runId ?? WorkflowState.startRun(options.id, opts.parentSessionId)
 
         const orchestratorSessionId = await WorkflowOrchestrator.initializeOrchestrator(
+          options.id,
           options.name,
+          runId,
           opts.parentSessionId,
         )
 

@@ -15,6 +15,7 @@ import { getFilename } from "@opencode-ai/util/path"
 import { showToast } from "@opencode-ai/ui/toast"
 import { cmp, normalizeProviderList } from "./utils"
 import type { State, VcsCache } from "./types"
+import { loadWorkflowSessions, recoverActiveWorkflowRuns } from "./session-load"
 
 type GlobalStore = {
   ready: boolean
@@ -151,11 +152,28 @@ export async function bootstrapDirectory(input: {
 
   if (input.store.status !== "complete") input.setStore("status", "partial")
 
+  const sessions = Promise.resolve(input.loadSessions(input.directory))
+
   Promise.all([
     input.sdk.path.get().then((x) => input.setStore("path", x.data!)),
     input.sdk.command.list().then((x) => input.setStore("command", x.data ?? [])),
     input.sdk.session.status().then((x) => input.setStore("session_status", x.data!)),
-    input.loadSessions(input.directory),
+    sessions.then(() =>
+      loadWorkflowSessions({
+        directory: input.directory,
+        sdk: input.sdk,
+        store: input.store,
+        setStore: input.setStore,
+      }),
+    ),
+    sessions.then(() =>
+      recoverActiveWorkflowRuns({
+        directory: input.directory,
+        sdk: input.sdk,
+        store: input.store,
+        setStore: input.setStore,
+      }),
+    ),
     input.sdk.mcp.status().then((x) => input.setStore("mcp", x.data!)),
     input.sdk.lsp.status().then((x) => input.setStore("lsp", x.data!)),
     input.sdk.vcs.get().then((x) => {

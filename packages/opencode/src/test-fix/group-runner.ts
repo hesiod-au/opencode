@@ -9,6 +9,7 @@ import { Bus } from "../bus"
 import { Config } from "../config/config"
 import { TestFixEvent } from "./events"
 import { FixAgent } from "./fix-agent"
+import { WorkflowStore } from "../workflow/store"
 import { spawn } from "child_process"
 import type { TestFix } from "./types"
 
@@ -19,14 +20,12 @@ export namespace GroupRunner {
     type: TestFix.TestType
     method: TestFix.TestMethodConfig
     parentSessionId: string
+    runId?: string
     concurrency: { current: number; max: number }
     abort: AbortSignal
   }
 
-  async function runSuiteCommand(
-    command: string,
-    abort: AbortSignal,
-  ): Promise<{ success: boolean; output: string }> {
+  async function runSuiteCommand(command: string, abort: AbortSignal): Promise<{ success: boolean; output: string }> {
     return new Promise((resolve) => {
       if (abort.aborted) {
         resolve({ success: false, output: "Aborted" })
@@ -65,11 +64,7 @@ export namespace GroupRunner {
     })
   }
 
-  async function parseFailingFiles(
-    testOutput: string,
-    sessionId: string,
-    abort: AbortSignal,
-  ): Promise<string[]> {
+  async function parseFailingFiles(testOutput: string, sessionId: string, abort: AbortSignal): Promise<string[]> {
     const agent = await Agent.get("build")
     if (!agent) return []
     const model = agent.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
@@ -136,7 +131,7 @@ Return only the JSON array, no other text.`
   }
 
   export async function run(options: Options): Promise<TestFix.GroupResult> {
-    const { type, method, parentSessionId, concurrency, abort } = options
+    const { type, method, parentSessionId, concurrency, abort, runId } = options
 
     log.info("starting group runner", { type, command: method.command })
 
@@ -144,6 +139,15 @@ Return only the JSON array, no other text.`
       parentID: parentSessionId,
       title: `Test Group: ${type}`,
     })
+    if (runId) {
+      await WorkflowStore.linkSession({
+        runId,
+        sessionId: groupSession.id,
+        workflowId: "test-fix",
+        role: "group",
+        parentSessionId,
+      })
+    }
 
     SessionStatus.set(groupSession.id, { type: "busy" })
 
@@ -201,13 +205,24 @@ Return only the JSON array, no other text.`
           suiteCommand: method.command,
           fileCommand: null,
           parentSessionId: groupSession.id,
+          runId,
           abort,
         })
         releaseConcurrency(concurrency)
         allFileResults.set(result.file, result)
       } else {
         // Dispatch fix agents for each failing file
-        await dispatchFixAgents(failingFiles, type, method, groupSession.id, concurrency, staggerSeconds, abort, allFileResults)
+        await dispatchFixAgents(
+          failingFiles,
+          type,
+          method,
+          groupSession.id,
+          runId,
+          concurrency,
+          staggerSeconds,
+          abort,
+          allFileResults,
+        )
       }
 
       // Regression loop
@@ -229,12 +244,24 @@ Return only the JSON array, no other text.`
 
         // Parse new failures
         const newFailingFiles = await parseFailingFiles(regressionResult.output, groupSession.id, abort)
-        const unhandledFiles = newFailingFiles.filter((f) => !allFileResults.has(f) || allFileResults.get(f)!.status === "failing")
+        const unhandledFiles = newFailingFiles.filter(
+          (f) => !allFileResults.has(f) || allFileResults.get(f)!.status === "failing",
+        )
 
         if (unhandledFiles.length === 0) break
 
         log.info("new failures found in regression", { type, files: unhandledFiles })
-        await dispatchFixAgents(unhandledFiles, type, method, groupSession.id, concurrency, staggerSeconds, abort, allFileResults)
+        await dispatchFixAgents(
+          unhandledFiles,
+          type,
+          method,
+          groupSession.id,
+          runId,
+          concurrency,
+          staggerSeconds,
+          abort,
+          allFileResults,
+        )
       }
 
       const files = Array.from(allFileResults.values())
@@ -262,6 +289,7 @@ Return only the JSON array, no other text.`
     type: TestFix.TestType,
     method: TestFix.TestMethodConfig,
     groupSessionId: string,
+    runId: string | undefined,
     concurrency: Options["concurrency"],
     staggerSeconds: number,
     abort: AbortSignal,
@@ -290,6 +318,7 @@ Return only the JSON array, no other text.`
             suiteCommand: method.command,
             fileCommand: method.test_file_command ?? null,
             parentSessionId: groupSessionId,
+            runId,
             abort,
           })
           results.set(file, result)

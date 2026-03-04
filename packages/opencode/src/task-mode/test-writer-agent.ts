@@ -9,6 +9,7 @@ import { TaskList } from "./task-list"
 import { TaskFile } from "./task-file"
 import { TaskModeEvent } from "./events"
 import { Instance } from "../project/instance"
+import { WorkflowStore } from "../workflow/store"
 import { spawn, execSync } from "child_process"
 import fs from "fs/promises"
 import path from "path"
@@ -52,6 +53,7 @@ export namespace TestWriterAgent {
   export interface TestWriterOptions {
     paths: TaskList.Paths
     parentSessionId?: string
+    runId?: string
     planningConversation: string
     disabledTools?: Record<string, false>
   }
@@ -78,7 +80,7 @@ export namespace TestWriterAgent {
   }
 
   export async function run(options: TestWriterOptions): Promise<TestWriterResult> {
-    const { paths, parentSessionId, planningConversation } = options
+    const { paths, parentSessionId, planningConversation, runId } = options
 
     log.info("starting test-writer agent", { taskListPath: paths.taskListPath })
 
@@ -87,6 +89,15 @@ export namespace TestWriterAgent {
       parentID: parentSessionId,
       title: "Test Writing Session",
     })
+    if (runId) {
+      await WorkflowStore.linkSession({
+        runId,
+        sessionId: session.id,
+        workflowId: "task",
+        role: "child",
+        parentSessionId,
+      })
+    }
 
     // Set session status to busy
     SessionStatus.set(session.id, { type: "busy" })

@@ -3,6 +3,7 @@ import { Instance } from "../project/instance"
 import { Bus } from "../bus"
 import { Identifier } from "../id/id"
 import { WorkflowEvent } from "./events"
+import { WorkflowStore } from "./store"
 import type { Workflow } from "./workflow"
 
 export namespace WorkflowState {
@@ -28,20 +29,33 @@ export namespace WorkflowState {
     },
   )
 
-  export function startRun(workflowId: string): string {
+  export function startRun(workflowId: string, parentSessionId?: string): string {
     const runId = Identifier.ascending("workflow")
+    const startedAt = Date.now()
     const entry: RunEntry = {
       runId,
       workflowId,
-      startedAt: Date.now(),
+      startedAt,
       status: {
         running: true,
-        startedAt: Date.now(),
+        startedAt,
+        parentSessionId,
       },
     }
 
     state().runs.set(runId, entry)
     state().activeByType.set(workflowId, runId)
+
+    WorkflowStore.createRun({
+      runId,
+      workflowId,
+      parentSessionId,
+      startedAt,
+      running: true,
+      status: entry.status,
+    }).catch((err) => {
+      log.error("failed to persist workflow run", { error: err, runId, workflowId })
+    })
 
     log.info("workflow run started", { workflowId, runId })
     return runId
@@ -55,6 +69,16 @@ export namespace WorkflowState {
     }
 
     entry.status = { ...entry.status, ...partial }
+
+    WorkflowStore.updateRun(runId, {
+      status: entry.status,
+      running: entry.status.running,
+      startedAt: entry.status.startedAt,
+      completedAt: entry.status.completedAt,
+      parentSessionId: entry.status.parentSessionId,
+    }).catch((err) => {
+      log.error("failed to persist workflow status", { error: err, runId })
+    })
 
     Bus.publish(WorkflowEvent.StatusChanged, {
       workflowId: entry.workflowId,
@@ -81,6 +105,10 @@ export namespace WorkflowState {
     entry.completedAt = Date.now()
     entry.status.running = false
     entry.status.completedAt = entry.completedAt
+
+    WorkflowStore.endRun(runId).catch((err) => {
+      log.error("failed to persist workflow run end", { error: err, runId })
+    })
 
     const current = state().activeByType.get(entry.workflowId)
     if (current === runId) {

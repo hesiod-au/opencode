@@ -6,6 +6,7 @@ import { Log } from "../../util/log"
 import { lazy } from "../../util/lazy"
 import { WorkflowRegistry } from "../../workflow/registry"
 import { WorkflowState } from "../../workflow/state"
+import { WorkflowStore } from "../../workflow/store"
 
 const log = Log.create({ service: "workflow-routes" })
 
@@ -49,6 +50,53 @@ const WorkflowInfoSchema = z
     toolInvocable: z.boolean(),
   })
   .meta({ ref: "WorkflowInfo" })
+
+const WorkflowRunSchema = z
+  .object({
+    runId: z.string(),
+    workflowId: z.string(),
+    projectID: z.string(),
+    directory: z.string(),
+    source: WorkflowStore.WorkflowRunSource,
+    parentSessionId: z.string().optional(),
+    startedAt: z.number(),
+    completedAt: z.number().optional(),
+    running: z.boolean(),
+    status: WorkflowStatusSchema.optional(),
+    stats: WorkflowStatusSchema.shape.stats.optional(),
+    extra: WorkflowStatusSchema.shape.extra.optional(),
+  })
+  .meta({ ref: "WorkflowRun" })
+
+const WorkflowSessionLinkSchema = z
+  .object({
+    sessionId: z.string(),
+    runId: z.string(),
+    workflowId: z.string(),
+    role: z.enum(["orchestrator", "child", "fix", "group", "report", "task", "other"]),
+    parentSessionId: z.string().optional(),
+    createdAt: z.number(),
+  })
+  .meta({ ref: "WorkflowSessionLink" })
+
+const runStatus = (run: WorkflowStore.WorkflowRun) => {
+  const status = run.status ?? {}
+  return {
+    ...status,
+    running: run.running ?? status.running,
+    parentSessionId: run.parentSessionId ?? status.parentSessionId,
+    startedAt: status.startedAt ?? run.startedAt,
+    completedAt: run.completedAt ?? status.completedAt,
+    runId: run.runId,
+    stats: run.stats ?? status.stats,
+    extra: run.extra ?? status.extra,
+  }
+}
+
+const runInfo = (run: WorkflowStore.WorkflowRun) => ({
+  ...run,
+  status: runStatus(run),
+})
 
 export const WorkflowRoutes = lazy(() =>
   new Hono()
@@ -247,6 +295,129 @@ export const WorkflowRoutes = lazy(() =>
         log.info("confirming workflow plan", { id: workflow.id })
         await workflow.confirmPlan()
         return c.json({ ok: true })
+      },
+    )
+    .get(
+      "/run/list",
+      describeRoute({
+        summary: "List workflow runs",
+        operationId: "workflow.run.list",
+        responses: {
+          200: {
+            description: "List of workflow runs",
+            content: {
+              "application/json": {
+                schema: resolver(WorkflowRunSchema.array()),
+              },
+            },
+          },
+        },
+      }),
+      validator(
+        "query",
+        z.object({
+          directory: z.string().optional().meta({ description: "Filter runs by project directory" }),
+          workflowId: z.string().optional().meta({ description: "Filter runs by workflow ID" }),
+          running: z
+            .enum(["true", "false"])
+            .transform((value) => value === "true")
+            .optional()
+            .meta({ description: "Filter runs by running state" }),
+          limit: z.coerce.number().optional().meta({ description: "Maximum number of runs to return" }),
+        }),
+      ),
+      async (c) => {
+        const query = c.req.valid("query")
+        const runs = await WorkflowStore.listRuns({
+          directory: query.directory,
+          workflowId: query.workflowId,
+          running: query.running,
+          limit: query.limit,
+        })
+        return c.json(runs.map(runInfo))
+      },
+    )
+    .get(
+      "/run/:runId",
+      describeRoute({
+        summary: "Get workflow run",
+        operationId: "workflow.run.get",
+        responses: {
+          200: {
+            description: "Workflow run",
+            content: {
+              "application/json": {
+                schema: resolver(WorkflowRunSchema),
+              },
+            },
+          },
+          ...errors(404),
+        },
+      }),
+      validator("param", z.object({ runId: z.string() })),
+      async (c) => {
+        const runId = c.req.valid("param").runId
+        const run = await WorkflowStore.getRun(runId).catch(() => undefined)
+        if (!run) return c.json({ error: "Workflow run not found" }, 404)
+        return c.json(runInfo(run))
+      },
+    )
+    .get(
+      "/run/:runId/sessions",
+      describeRoute({
+        summary: "List workflow run sessions",
+        operationId: "workflow.run.sessions",
+        responses: {
+          200: {
+            description: "Workflow run sessions",
+            content: {
+              "application/json": {
+                schema: resolver(WorkflowSessionLinkSchema.array()),
+              },
+            },
+          },
+          ...errors(404),
+        },
+      }),
+      validator("param", z.object({ runId: z.string() })),
+      validator(
+        "query",
+        z.object({
+          limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
+        }),
+      ),
+      async (c) => {
+        const runId = c.req.valid("param").runId
+        const run = await WorkflowStore.getRun(runId).catch(() => undefined)
+        if (!run) return c.json({ error: "Workflow run not found" }, 404)
+        const query = c.req.valid("query")
+        const sessions = await WorkflowStore.listSessionsByRun(runId, { limit: query.limit })
+        return c.json(sessions)
+      },
+    )
+    .get(
+      "/session/:sessionId",
+      describeRoute({
+        summary: "Get workflow run by session",
+        operationId: "workflow.session.get",
+        responses: {
+          200: {
+            description: "Workflow run",
+            content: {
+              "application/json": {
+                schema: resolver(WorkflowRunSchema),
+              },
+            },
+          },
+          ...errors(404),
+        },
+      }),
+      validator("param", z.object({ sessionId: z.string() })),
+      async (c) => {
+        const sessionId = c.req.valid("param").sessionId
+        const run = await WorkflowStore.getRunBySession(sessionId).catch(() => undefined)
+        if (!run) return c.json({ error: "Workflow run not found" }, 404)
+        return c.json(runInfo(run))
       },
     ),
 )

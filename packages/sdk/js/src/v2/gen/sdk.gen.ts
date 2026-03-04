@@ -198,6 +198,13 @@ import type {
   WorkflowGetStatusErrors,
   WorkflowGetStatusResponses,
   WorkflowListResponses,
+  WorkflowRunGetErrors,
+  WorkflowRunGetResponses,
+  WorkflowRunListResponses,
+  WorkflowRunSessionsErrors,
+  WorkflowRunSessionsResponses,
+  WorkflowSessionGetErrors,
+  WorkflowSessionGetResponses,
   WorkflowStartErrors,
   WorkflowStartResponses,
   WorkflowStatusResponses,
@@ -3219,6 +3226,128 @@ export class Taskmode extends HeyApiClient {
   }
 }
 
+export class Run extends HeyApiClient {
+  /**
+   * List workflow runs
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workflowId?: string
+      running?: boolean
+      limit?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workflowId" },
+            { in: "query", key: "running" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WorkflowRunListResponses, unknown, ThrowOnError>({
+      url: "/workflow/run/list",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get workflow run
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      runId: string
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "runId" },
+            { in: "query", key: "directory" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WorkflowRunGetResponses, WorkflowRunGetErrors, ThrowOnError>({
+      url: "/workflow/run/{runId}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List workflow run sessions
+   */
+  public sessions<ThrowOnError extends boolean = false>(
+    parameters: {
+      runId: string
+      directory?: string
+      limit?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "runId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WorkflowRunSessionsResponses, WorkflowRunSessionsErrors, ThrowOnError>({
+      url: "/workflow/run/{runId}/sessions",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Session2 extends HeyApiClient {
+  /**
+   * Get workflow run by session
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionId: string
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionId" },
+            { in: "query", key: "directory" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WorkflowSessionGetResponses, WorkflowSessionGetErrors, ThrowOnError>({
+      url: "/workflow/session/{sessionId}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Workflow extends HeyApiClient {
   /**
    * List registered workflows
@@ -3373,6 +3502,16 @@ export class Workflow extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  private _run?: Run
+  get run(): Run {
+    return (this._run ??= new Run({ client: this.client }))
+  }
+
+  private _session?: Session2
+  get session(): Session2 {
+    return (this._session ??= new Session2({ client: this.client }))
   }
 }
 

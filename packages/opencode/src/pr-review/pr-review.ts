@@ -9,6 +9,7 @@ import { Identifier } from "../id/id"
 import { Instance } from "../project/instance"
 import { WorkflowEvent } from "../workflow/events"
 import { WorkflowState } from "../workflow/state"
+import { WorkflowStore } from "../workflow/store"
 import { PRReviewEvent } from "./events"
 import { GH } from "./gh"
 import { Workflow } from "../workflow/workflow"
@@ -61,7 +62,7 @@ export namespace PRReviewWorkflow {
       }
     },
   )
-  type ReviewAction = "fix" | "ignore"
+  type ReviewAction = "fix" | "ignore" | "defer"
   type AssessedComment = GH.ReviewComment & {
     action: ReviewAction
     reason: string
@@ -229,7 +230,10 @@ export namespace PRReviewWorkflow {
           }
           if (typeof item.id !== "number") return undefined
           const action = (
-            typeof item.action === "string" && (item.action === "fix" || item.action === "ignore") ? item.action : "fix"
+            typeof item.action === "string" &&
+            (item.action === "fix" || item.action === "ignore" || item.action === "defer")
+              ? item.action
+              : "fix"
           ) as ReviewAction
 
           return {
@@ -290,9 +294,10 @@ export namespace PRReviewWorkflow {
 Classify each review comment as one of:
 - fix: actionable and should be investigated before deciding how to resolve
 - ignore: non-actionable (ack/nice/thank-you/looks good)
+- defer: valid issue but NOT relevant to this PR's changes (pre-existing problem, out-of-scope refactor, etc.)
 
 For each item, output strict JSON with this shape:
-{"assessments":[{"id":123,"action":"fix|ignore","reason":"short reason"}]}
+{"assessments":[{"id":123,"action":"fix|ignore|defer","reason":"short reason"}]}
 
 Only output JSON, no markdown.
 
@@ -332,12 +337,41 @@ ${payload}
     })
   }
 
+  async function writeUnresolvedIssues(prNumber: number, deferred: AssessedComment[]) {
+    const prInfo = await GH.getPRInfo(prNumber)
+    const branch = prInfo.headRefName
+    const dir = `${Instance.directory}/docs/unresolved_issues`
+    await Bun.spawn(["mkdir", "-p", dir], { cwd: Instance.directory }).exited
+    const filePath = `${dir}/${branch}.md`
+    const file = Bun.file(filePath)
+    const existing = (await file.exists()) ? await file.text() : ""
+    const entries = deferred
+      .map((c) => {
+        const location = c.path ? `${c.path}${c.line ? `:${c.line}` : ""}` : "General"
+        return `### ${location}\n- **Reviewer:** ${c.user.login}\n- **Comment:** ${c.body}\n- **Reason deferred:** ${c.reason}\n`
+      })
+      .join("\n")
+    const header = existing
+      ? ""
+      : `# Unresolved Issues — ${branch}\n\nValid issues deferred from PR review as out-of-scope.\n\n`
+    await Bun.write(filePath, existing + header + entries)
+  }
+
   async function runFixAgent(comment: AssessedComment): Promise<InvestigatedFixResult> {
     const state = instanceState().current
     const fixSession = await Session.create({
       parentID: state?.orchestratorSessionId,
       title: `PR Review Fix — Cycle ${state?.cycleCount ?? 0}`,
     })
+    if (state?.runId) {
+      await WorkflowStore.linkSession({
+        runId: state.runId,
+        sessionId: fixSession.id,
+        workflowId: "pr-review",
+        role: "fix",
+        parentSessionId: state.orchestratorSessionId,
+      })
+    }
     if (state) state.sessionIds.push(fixSession.id)
 
     const location = comment.path ? `File: ${comment.path}${comment.line ? `:${comment.line}` : ""}` : "General comment"
@@ -354,7 +388,7 @@ Then decide the best action:
 
 Before continuing, if escalation is required, invoke:
 tool: workflow_task
-userPrompt: Original issue: ${commentText}
+userPrompt: Original issue: (use the Issue section above)
 Investigation outcome: {brief finding + category + rationale}
 
 If the issue is local, continue with a minimal code fix in this same message.
@@ -426,14 +460,16 @@ If the issue is local, continue with a minimal code fix in this same message.
         return
       }
 
-      const runId = options.runId ?? WorkflowState.startRun("pr-review")
+      const runId = options.runId ?? WorkflowState.startRun("pr-review", options.parentSessionId)
 
       const config = await Config.get()
       const prConfig = config.prReview
 
       // Initialize orchestrator session (use existing or create new)
       const orchestratorSessionId = await WorkflowOrchestrator.initializeOrchestrator(
+        "pr-review",
         "PR Review",
+        runId,
         options.parentSessionId,
       )
 
@@ -593,6 +629,13 @@ If the issue is local, continue with a minimal code fix in this same message.
       const unseen = comments.filter((comment) => !state?.seenCommentIds.has(comment.id))
       unseen.forEach((comment) => state?.seenCommentIds.add(comment.id))
       const assessed = await assessComments(unseen)
+
+      const deferred = assessed.filter((c) => c.action === "defer")
+      if (deferred.length > 0) {
+        await writeUnresolvedIssues(opts.prNumber, deferred)
+        progress(`Deferred ${deferred.length} comment(s) as valid but out-of-scope`)
+      }
+
       const actionable = assessed.filter((comment) => comment.action === "fix")
 
       if (actionable.length === 0) {
@@ -687,6 +730,15 @@ If the issue is local, continue with a minimal code fix in this same message.
                 parentID: state.orchestratorSessionId,
                 title: `Test Fix — Cycle ${cycle}, Attempt ${attempt}`,
               })
+              if (state.runId) {
+                await WorkflowStore.linkSession({
+                  runId: state.runId,
+                  sessionId: testFixSession.id,
+                  workflowId: "pr-review",
+                  role: "child",
+                  parentSessionId: state.orchestratorSessionId,
+                })
+              }
 
               const agent = await Agent.get("build")
               if (!agent) break
