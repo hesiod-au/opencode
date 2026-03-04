@@ -1,0 +1,712 @@
+---
+title: Workflows
+description: Configure automated workflows for task orchestration, PR reviews, and test setup.
+---
+
+OpenCode includes powerful workflow automation for common development scenarios. Workflows orchestrate multiple agents and sessions to automate complex, multi-step processes.
+
+---
+
+## Available Workflows
+
+OpenCode ships with three built-in workflows:
+
+- **Task Mode** - Multi-agent orchestration for breaking down and executing complex tasks
+- **PR Review** - Automated PR feedback loop that addresses reviewer comments
+- **Test Config** - Analyze and validate test configuration
+
+Each workflow can be configured, invoked via tools during sessions, or started from the UI.
+
+---
+
+## Task Mode
+
+Task mode breaks down complex work into smaller tasks and executes them in parallel using multiple AI agents.
+
+### How it works
+
+1. **Planning Phase** - Analyzes your request and generates a task list
+2. **Test Writing Phase** (TDD mode) - Writes tests for each task
+3. **Execution Phase** - Launches task agents in parallel (respects dependencies)
+4. **E2E Testing Phase** (TDD mode) - Runs end-to-end tests
+5. **Completion** - Generates final report with stats
+
+### Configuration
+
+Configure task mode through the `taskMode` option in your `opencode.json`:
+
+```jsonc title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "taskMode": {
+    "enabled": true,
+    "listPath": ".opencode/tasks/default/task_list.md",
+    "requirePlanConfirmation": true,
+    "maxConcurrentTasks": 3,
+    "agentLaunchStaggerSeconds": 5,
+    "pollIntervalMs": 1000,
+    "tddMode": true,
+    "maxTestRetries": 10,
+    "taskPromptGuardrails": "Use TypeScript strict mode. Follow existing code style."
+  }
+}
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | boolean | true | Enable task mode workflow |
+| `listPath` | string | `.opencode/tasks/default/task_list.md` | Path to task list markdown file |
+| `requirePlanConfirmation` | boolean | false | Require user approval before executing plan |
+| `maxConcurrentTasks` | number | 3 | Maximum task agents running simultaneously |
+| `agentLaunchStaggerSeconds` | number | 5 | Delay between launching task agents |
+| `pollIntervalMs` | number | 1000 | Milliseconds between task list polls |
+| `tddMode` | boolean | false | Enable Test-Driven Development mode |
+| `maxTestRetries` | number | 10 | Max test/fix iterations per task (TDD mode) |
+| `taskPromptGuardrails` | string | - | Extra instructions for all task prompts |
+
+### Using task mode
+
+**From UI:**
+Navigate to the Task Mode tab and click "Start"
+
+**Via tool:**
+```
+Can you implement user authentication using task mode?
+```
+
+**From CLI:**
+```bash
+opencode workflow start task-mode
+```
+
+### TDD Mode
+
+When `tddMode: true`:
+
+1. After planning, a test-writer agent generates tests for each task
+2. Task agents must make tests pass before completion
+3. After all tasks complete, an E2E test is run
+4. E2E failures trigger a fix session
+
+This ensures all implementation has test coverage.
+
+### Task Prompt Guardrails
+
+Use `taskPromptGuardrails` to inject consistent instructions into every task:
+
+```jsonc title="opencode.json"
+{
+  "taskMode": {
+    "taskPromptGuardrails": "Runtime constraints:\n- Use Node.js v20+\n- Prefer async/await over callbacks\n- Follow Airbnb style guide"
+  }
+}
+```
+
+This appears in every task prompt and test-fix prompt, ensuring consistency across all agents.
+
+---
+
+## PR Review
+
+Automates the PR review feedback loop: fetch comments, fix issues, run tests, commit, push, request review, repeat.
+
+### How it works
+
+1. **Fetch Comments** - Gets review comments since last commit
+2. **Assess** - AI triages comments (actionable vs non-actionable)
+3. **Fix** - Runs fix agent per actionable comment
+4. **Test** - Runs auto-detected test command
+5. **Commit & Push** - Commits changes with feedback message
+6. **Request Review** - Posts comment asking for re-review
+7. **Wait** - Polls for new comments (shows orange waiting animation)
+8. **Repeat** - Continues until no new comments or max cycles reached
+
+### Configuration
+
+Configure PR review through the `prReview` option:
+
+```jsonc title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "prReview": {
+    "enabled": true,
+    "prNumber": 123,
+    "pollIntervalMinutes": 10,
+    "maxCycles": 20,
+    "maxRecheckAttempts": 5,
+    "testCommand": "bun test",
+    "reviewRequestComment": "@reviewer please review"
+  }
+}
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | boolean | true | Enable PR review workflow |
+| `prNumber` | number | auto-detect | PR number to review |
+| `pollIntervalMinutes` | number | 10 | Minutes between comment checks |
+| `maxCycles` | number | 20 | Maximum review/fix cycles |
+| `maxRecheckAttempts` | number | 5 | Max checks when no new comments exist |
+| `testCommand` | string | auto-detect | Test command to run after fixes |
+| `reviewRequestComment` | string | `@codex review` | Comment posted after each cycle |
+
+### Auto-Detection
+
+**PR Number:**
+If `prNumber` is not set, PR review auto-detects the PR for the current branch using `gh pr view --json number`
+
+**Test Command:**
+If `testCommand` is not set, PR review detects based on project files:
+- Detects `pytest` for Python projects
+- Detects `go test ./...` for Go projects
+- Detects `bun test` for Bun projects
+- Detects `npm test` for Node projects
+- Detects `make test` for Makefile projects
+
+### Using PR review
+
+**Via tool (during session):**
+```
+Please address the PR review feedback
+```
+
+**From UI:**
+Navigate to the PR Review tab and click "Start"
+
+**From CLI:**
+```bash
+opencode workflow start pr-review
+```
+
+When invoked via tool, PR review uses the calling session as orchestrator. When started from UI, it creates a new "Orchestrator: PR Review" session.
+
+---
+
+## Test Config
+
+Analyzes and validates your test configuration, ensuring test commands are properly set up.
+
+### How it works
+
+1. **Analyze** - AI agent inspects project structure and identifies test setup
+2. **Validate** - Attempts to run detected test commands
+3. **Report** - Returns validation results and recommendations
+
+### Configuration
+
+Test config is a composable workflow with minimal configuration. It inherits settings from the general workflow system.
+
+### Using test config
+
+**From UI:**
+Navigate to the Test Config tab and click "Start"
+
+**From CLI:**
+```bash
+opencode workflow start test-config
+```
+
+---
+
+## Session Hierarchy
+
+All workflows create session trees for organization and progress tracking:
+
+### Orchestrator Session
+
+Every workflow run has an orchestrator session:
+
+- **Tool-invoked**: Uses calling session as orchestrator
+- **UI-started**: Creates new "Orchestrator: {Workflow Name}" session
+
+The orchestrator session:
+- Shows aggregated status from all child sessions
+- Receives progress updates throughout the workflow
+- Shows **working animation** (blue) when any child is actively processing
+- Shows **waiting animation** (orange) when children are waiting and none are working
+- Parents the entire session tree for that workflow run
+
+### Child Sessions
+
+Workflows create child sessions as needed:
+
+**Task Mode:**
+- Planning session
+- Test writing session (TDD mode)
+- One session per task agent
+- E2E fix session (if needed)
+- Final report session
+
+**PR Review:**
+- One fix session per actionable comment
+- Test fix sessions (if tests fail)
+
+Child sessions automatically inherit the orchestrator as parent, creating a proper tree hierarchy visible in the UI sidebar.
+
+---
+
+## Workflow State
+
+Workflows maintain state across their lifecycle, persisted per-project:
+
+### State Isolation
+
+Each project directory gets isolated workflow state stored in:
+
+```
+~/.claude/projects/{project-hash}/workflow-state/
+```
+
+This ensures:
+- Multiple projects can run workflows independently
+- State doesn't leak between different codebases
+- Workflow runs are tracked per-project
+
+### Run History
+
+Each workflow start gets a unique `runId`. State includes:
+
+- Start/completion timestamps
+- Current phase and status
+- Parent session ID
+- Progress messages
+- Statistics (tokens, cost, modified files)
+
+Query state programmatically via the SDK:
+
+```typescript
+const status = await client.workflow.getStatus("task-mode")
+```
+
+---
+
+## Status & Animations
+
+Workflows provide visual feedback through session status:
+
+### Status Types
+
+- **busy** - Actively processing (blue working animation)
+- **waiting** - Passively waiting (orange waiting animation)
+- **idle** - Completed or not started (no animation)
+- **retry** - Failed with retry scheduled (blue working animation)
+
+### Status Aggregation
+
+Parent sessions aggregate child status:
+
+- **Shows busy** if ANY child is busy or retry
+- **Shows waiting** if some children are waiting and none are busy
+- **Shows idle** otherwise
+
+This means when task agents are running, the orchestrator automatically shows the working animation without manual status management.
+
+---
+
+## Example: Task Mode Configuration
+
+Here's a complete task mode configuration for a TypeScript project:
+
+```jsonc title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Model configuration
+  "model": "anthropic/claude-sonnet-4-5",
+
+  // Task mode settings
+  "taskMode": {
+    "enabled": true,
+    "requirePlanConfirmation": true,
+    "maxConcurrentTasks": 5,
+    "agentLaunchStaggerSeconds": 3,
+    "tddMode": true,
+    "maxTestRetries": 15,
+    "taskPromptGuardrails": "# Coding Standards\n\n- Use TypeScript strict mode\n- Follow Prettier config (no semicolons, 120 char width)\n- Prefer functional patterns over classes\n- Write tests using Vitest\n- All async operations use async/await"
+  },
+
+  // Agent configuration for task agents
+  "agent": {
+    "build": {
+      "model": "anthropic/claude-sonnet-4-5",
+      "temperature": 0.3
+    },
+    "task": {
+      "model": "anthropic/claude-sonnet-4-5",
+      "temperature": 0.2,
+      "description": "Specialized agent for executing individual tasks",
+      "tools": {
+        "question": false,
+        "workflow_task": false
+      }
+    }
+  },
+
+  // Permission settings
+  "permission": {
+    "bash": "allow",
+    "edit": "allow",
+    "write": "allow"
+  }
+}
+```
+
+### Usage
+
+Start task mode and request a complex feature:
+
+```
+/workflow task-mode
+
+Implement user authentication with the following requirements:
+- JWT-based authentication
+- Login and signup endpoints
+- Password hashing with bcrypt
+- Token refresh mechanism
+- Protected route middleware
+```
+
+Task mode will:
+1. Generate a plan with 5-8 granular tasks
+2. Wait for your confirmation (if `requirePlanConfirmation: true`)
+3. Write tests for each task (if `tddMode: true`)
+4. Execute tasks in parallel (max 5 concurrent based on config)
+5. Run tests and fix failures automatically
+6. Generate final report with implementation summary
+
+---
+
+## Example: PR Review Configuration
+
+Configure PR review for a Python project with pytest:
+
+```jsonc title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  "prReview": {
+    "enabled": true,
+    // Poll every 5 minutes instead of default 10
+    "pollIntervalMinutes": 5,
+    // Allow up to 30 review cycles for complex PRs
+    "maxCycles": 30,
+    // Be patient with reviewers - check 8 times before stopping
+    "maxRecheckAttempts": 8,
+    // Explicit test command (auto-detects pytest by default)
+    "testCommand": "pytest tests/ -v --cov=src",
+    // Custom review request comment
+    "reviewRequestComment": "🤖 Changes pushed - ready for re-review @team/reviewers"
+  },
+
+  // Use faster model for PR review to reduce costs
+  "agent": {
+    "build": {
+      "model": "anthropic/claude-sonnet-4-5"
+    }
+  }
+}
+```
+
+### Usage
+
+After pushing your PR, start the review loop:
+
+```
+/workflow pr-review
+```
+
+Or invoke via tool during a session:
+
+```
+Please start addressing the PR review feedback
+```
+
+The workflow will:
+1. Fetch all unaddressed review comments
+2. Classify comments (actionable vs acknowledgment)
+3. Fix actionable comments
+4. Run tests and fix failures
+5. Commit and push
+6. Post review request comment
+7. Wait 5 minutes (shows orange waiting animation)
+8. Check for new comments
+9. Repeat steps 2-8 until no new comments or 30 cycles
+
+---
+
+## Example: Combined Configuration
+
+Use multiple workflows together in a full-featured project config:
+
+```jsonc title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Global settings
+  "model": "anthropic/claude-sonnet-4-5",
+  "autoupdate": true,
+
+  // Task mode for feature development
+  "taskMode": {
+    "enabled": true,
+    "requirePlanConfirmation": true,
+    "maxConcurrentTasks": 4,
+    "tddMode": true,
+    "taskPromptGuardrails": "{file:.opencode/task-guidelines.md}"
+  },
+
+  // PR review for automated feedback handling
+  "prReview": {
+    "enabled": true,
+    "pollIntervalMinutes": 10,
+    "maxCycles": 25,
+    "reviewRequestComment": "🤖 Updated - please review @team/code-reviewers"
+  },
+
+  // Agent configuration
+  "agent": {
+    "build": {
+      "model": "anthropic/claude-sonnet-4-5",
+      "temperature": 0.3
+    }
+  },
+
+  // Permissions
+  "permission": {
+    "bash": "allow",
+    "edit": "allow"
+  }
+}
+```
+
+### Example task guidelines file
+
+```markdown title=".opencode/task-guidelines.md"
+# Task Execution Guidelines
+
+## Code Standards
+- Use TypeScript strict mode
+- Follow Prettier config (no semicolons)
+- Prefer functional patterns
+- Maximum file length: 300 lines
+
+## Testing
+- Use Vitest for unit tests
+- Test files: `*.test.ts` in `__tests__` directories
+- Aim for >80% code coverage
+- Mock external dependencies
+
+## Documentation
+- Add JSDoc comments for public functions
+- Update README.md if adding new features
+- Keep comments concise and relevant
+
+## Performance
+- Avoid unnecessary re-renders
+- Use React.memo for expensive components
+- Debounce user input handlers
+```
+
+---
+
+## Invocation Methods
+
+Workflows can be started in multiple ways:
+
+### 1. Tool Invocation (During Session)
+
+When you invoke a workflow via natural language during a session, the workflow uses **your current session as the orchestrator**:
+
+```
+User: "Please set up task mode to implement the new feature"
+```
+
+The workflow tool is automatically invoked, child sessions are created under your current session, and progress updates appear inline.
+
+### 2. UI Button
+
+From the web UI or TUI, navigate to the workflow tab and click "Start". This creates a **new orchestrator session** titled "Orchestrator: {Workflow Name}" and all child sessions are created under it.
+
+### 3. CLI Command
+
+Start workflows directly from the command line:
+
+```bash
+# Start task mode
+opencode workflow start task-mode
+
+# Start PR review
+opencode workflow start pr-review
+
+# Start with options
+opencode workflow start pr-review --pr 123
+```
+
+This also creates a new orchestrator session.
+
+### 4. Programmatic (SDK)
+
+Use the OpenCode SDK to start workflows programmatically:
+
+```typescript
+import { OpencodeClient } from "@opencode-ai/sdk"
+
+const client = new OpencodeClient({ baseURL: "http://localhost:4096" })
+
+// Start task mode
+await client.workflow.start({
+  workflowId: "task-mode",
+  parentSessionId: mySessionId, // optional
+  userPrompt: "Implement user authentication"
+})
+
+// Check status
+const status = await client.workflow.getStatus("task-mode")
+console.log(status.running) // true
+console.log(status.phase) // "executing"
+```
+
+---
+
+## Workflow Control
+
+### Stopping Workflows
+
+All workflows support graceful shutdown:
+
+**From UI:**
+Click "Stop" button on the workflow tab
+
+**From CLI:**
+```bash
+opencode workflow stop task-mode
+```
+
+**Programmatic:**
+```typescript
+await client.workflow.stop("task-mode")
+```
+
+When stopped:
+- Active sessions are aborted
+- Orchestrator status set to idle
+- Workflow state marked as stopped
+- Partial progress is preserved
+
+### Checking Status
+
+Query workflow status at any time:
+
+```typescript
+const status = await client.workflow.getStatus("task-mode")
+
+console.log(status.running)        // boolean
+console.log(status.phase)          // current phase
+console.log(status.startedAt)      // timestamp
+console.log(status.parentSessionId) // orchestrator session ID
+console.log(status.stats)          // tokens, cost, modified files
+```
+
+For task mode, extra info is available:
+
+```typescript
+console.log(status.extra.activeTaskCount)
+console.log(status.extra.completedTaskCount)
+console.log(status.extra.planGenerated)
+console.log(status.extra.taskListPath)
+```
+
+For PR review:
+
+```typescript
+console.log(status.extra.prNumber)
+console.log(status.extra.cycleCount)
+console.log(status.extra.sessionIds)
+console.log(status.extra.progressLog)
+```
+
+---
+
+## Best Practices
+
+### Task Mode
+
+- **Enable plan confirmation** (`requirePlanConfirmation: true`) for production work
+- **Use TDD mode** for critical features requiring test coverage
+- **Adjust concurrency** based on system resources (3-5 recommended)
+- **Set guardrails** to enforce project-specific conventions
+- **Review plans** before execution to catch misunderstandings early
+
+### PR Review
+
+- **Set reasonable polling** (5-15 minutes) to avoid reviewer fatigue
+- **Configure test command** explicitly for reliability
+- **Customize review comment** to match team conventions
+- **Monitor first cycles** to ensure fixes are appropriate
+- **Use max cycles limit** to prevent infinite loops
+
+### General
+
+- **Start with defaults** and adjust based on experience
+- **Check workflow status** via SDK for monitoring and debugging
+- **Use orchestrator sessions** to track full workflow history
+- **Review child sessions** to understand agent decision-making
+- **Stop workflows gracefully** to preserve partial progress
+
+---
+
+## Troubleshooting
+
+### Task mode won't start
+
+- Check `taskMode.enabled` is not false
+- Verify task list path exists and is readable
+- Ensure agents are configured (uses "build" agent by default)
+- Check logs: child sessions may have permission denials
+
+### PR review not detecting PR
+
+- Ensure you're on a branch with an open PR
+- Run `gh pr view` manually to verify GitHub CLI access
+- Set `prReview.prNumber` explicitly in config
+- Check GitHub authentication with `gh auth status`
+
+### Tests failing repeatedly
+
+- Check `testCommand` is correct for your project
+- Increase `maxTestRetries` for flaky tests
+- Review test fix sessions to see what's being attempted
+- Consider disabling test phase if tests aren't ready
+
+### Orchestrator not showing progress
+
+- Verify workflow was started (check `getStatus()`)
+- Check browser console for WebSocket errors
+- Ensure server is running (`opencode serve` or `opencode web`)
+- Refresh the UI to reconnect WebSocket
+
+### Child sessions not visible
+
+- Navigate to the orchestrator session in sidebar
+- Expand the session tree (child sessions are nested)
+- Check `workflows` section of config for any conflicting settings
+- Verify `parentSessionId` is being passed correctly
+
+---
+
+## Advanced: Custom Workflows
+
+While task mode, PR review, and test config are built-in, you can create custom workflows using the composable workflow system.
+
+See `/home/jeb/projects/opencode/packages/opencode/src/workflow/composable.ts` for the API and examples of workflow implementation.
+
+Custom workflows should:
+- Use `WorkflowOrchestrator.initializeOrchestrator()` for session management
+- Set child session `parentID` to orchestrator session
+- Call `WorkflowOrchestrator.logProgress()` for status updates
+- Set session status appropriately (busy/waiting/idle)
+- Follow the standard workflow lifecycle (start → execute → stop)

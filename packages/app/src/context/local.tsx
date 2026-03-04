@@ -16,6 +16,21 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const sync = useSync()
     const providers = useProviders()
 
+    function normalizeAgents(input: unknown): typeof sync.data.agent {
+      if (Array.isArray(input)) return input as typeof sync.data.agent
+      if (input && typeof input === "object") {
+        const nested = (input as { data?: unknown }).data
+        if (Array.isArray(nested)) return nested as typeof sync.data.agent
+
+        const mapped = Object.values(input).filter(
+          (value): value is (typeof sync.data.agent)[number] =>
+            !!value && typeof value === "object" && typeof (value as { name?: unknown }).name === "string",
+        )
+        if (mapped.length > 0) return mapped
+      }
+      return []
+    }
+
     function isModelValid(model: ModelKey) {
       const provider = providers.all().find((x) => x.id === model.providerID)
       return (
@@ -36,7 +51,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const agent = (() => {
-      const list = createMemo(() => sync.data.agent.filter((x) => x.mode !== "subagent" && !x.hidden))
+      const list = createMemo(() => normalizeAgents(sync.data.agent).filter((x) => x.mode !== "subagent" && !x.hidden))
       const [store, setStore] = createStore<{
         current?: string
       }>({

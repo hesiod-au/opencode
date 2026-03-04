@@ -84,6 +84,12 @@ export function SessionHeader() {
     tabs().setActive("test-config")
   }
 
+  const openTestFix = () => {
+    view().reviewPanel.open()
+    tabs().open("test-fix")
+    tabs().setActive("test-fix")
+  }
+
   const openReview = () => {
     view().reviewPanel.open()
     tabs().setActive("review")
@@ -362,6 +368,11 @@ export function SessionHeader() {
                 <Tooltip value="Test Config" placement="bottom" class="hidden md:block shrink-0">
                   <Button variant="ghost" class="size-6 p-0" onClick={openTestConfig}>
                     <Icon name="settings-gear" size="small" class="icon-base" />
+                  </Button>
+                </Tooltip>
+                <Tooltip value="Test Fix" placement="bottom" class="hidden md:block shrink-0">
+                  <Button variant="ghost" class="size-6 p-0" onClick={openTestFix}>
+                    <Icon name="circle-check" size="small" class="icon-base" />
                   </Button>
                 </Tooltip>
                 <Show when={params.id}>

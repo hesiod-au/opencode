@@ -20,6 +20,21 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const sdk = useSDK()
     const toast = useToast()
 
+    function normalizeAgents(input: unknown): typeof sync.data.agent {
+      if (Array.isArray(input)) return input as typeof sync.data.agent
+      if (input && typeof input === "object") {
+        const nested = (input as { data?: unknown }).data
+        if (Array.isArray(nested)) return nested as typeof sync.data.agent
+
+        const mapped = Object.values(input).filter(
+          (value): value is (typeof sync.data.agent)[number] =>
+            !!value && typeof value === "object" && typeof (value as { name?: unknown }).name === "string",
+        )
+        if (mapped.length > 0) return mapped
+      }
+      return []
+    }
+
     function isModelValid(model: { providerID: string; modelID: string }) {
       const provider = sync.data.provider.find((x) => x.id === model.providerID)
       return !!provider?.models[model.modelID]
@@ -34,12 +49,12 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const agent = iife(() => {
-      const agents = createMemo(() => sync.data.agent.filter((x) => x.mode !== "subagent" && !x.hidden))
-      const visibleAgents = createMemo(() => sync.data.agent.filter((x) => !x.hidden))
+      const agents = createMemo(() => normalizeAgents(sync.data.agent).filter((x) => x.mode !== "subagent" && !x.hidden))
+      const visibleAgents = createMemo(() => normalizeAgents(sync.data.agent).filter((x) => !x.hidden))
       const [agentStore, setAgentStore] = createStore<{
         current: string
       }>({
-        current: agents()[0].name,
+        current: agents()[0]?.name ?? "",
       })
       const { theme } = useTheme()
       const colors = createMemo(() => [

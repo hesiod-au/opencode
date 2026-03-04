@@ -46,6 +46,7 @@ import {
   SessionTasksTab,
   SessionPRReviewTab,
   SessionTestConfigTab,
+  SessionTestFixTab,
   SortableTab,
   FileVisual,
   SortableTerminalTab,
@@ -1021,10 +1022,19 @@ function PageContent() {
   const tasksOpen = createMemo(() => tabs().active() === "tasks" || tabs().all().includes("tasks"))
   const prReviewOpen = createMemo(() => tabs().active() === "pr-review" || tabs().all().includes("pr-review"))
   const testConfigOpen = createMemo(() => tabs().active() === "test-config" || tabs().all().includes("test-config"))
+  const testFixOpen = createMemo(() => tabs().active() === "test-fix" || tabs().all().includes("test-fix"))
   const openedTabs = createMemo(() =>
     tabs()
       .all()
-      .filter((tab) => tab !== "context" && tab !== "tasks" && tab !== "pr-review" && tab !== "test-config" && tab !== "review"),
+      .filter(
+        (tab) =>
+          tab !== "context" &&
+          tab !== "tasks" &&
+          tab !== "pr-review" &&
+          tab !== "test-config" &&
+          tab !== "test-fix" &&
+          tab !== "review",
+      ),
   )
 
   const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
@@ -1033,7 +1043,13 @@ function PageContent() {
   const showTabs = createMemo(
     () =>
       view().reviewPanel.opened() &&
-      (hasReview() || tabs().all().length > 0 || contextOpen() || tasksOpen() || prReviewOpen() || testConfigOpen()),
+      (hasReview() ||
+        tabs().all().length > 0 ||
+        contextOpen() ||
+        tasksOpen() ||
+        prReviewOpen() ||
+        testConfigOpen() ||
+        testFixOpen()),
   )
 
   const fileTreeTab = () => layout.fileTree.tab()
@@ -1298,6 +1314,7 @@ function PageContent() {
     if (active === "tasks") return "tasks"
     if (active === "pr-review") return "pr-review"
     if (active === "test-config") return "test-config"
+    if (active === "test-fix") return "test-fix"
     if (active === "review" && reviewTab()) return "review"
     if (active && file.pathFromTab(active)) return normalizeTab(active)
 
@@ -1307,6 +1324,7 @@ function PageContent() {
     if (tasksOpen()) return "tasks"
     if (prReviewOpen()) return "pr-review"
     if (testConfigOpen()) return "test-config"
+    if (testFixOpen()) return "test-fix"
     if (reviewTab() && hasReview()) return "review"
     return "empty"
   })
@@ -1320,7 +1338,16 @@ function PageContent() {
   createEffect(() => {
     if (!layout.ready()) return
     if (tabs().active()) return
-    if (openedTabs().length === 0 && !contextOpen() && !tasksOpen() && !prReviewOpen() && !testConfigOpen() && !(reviewTab() && hasReview())) return
+    if (
+      openedTabs().length === 0 &&
+      !contextOpen() &&
+      !tasksOpen() &&
+      !prReviewOpen() &&
+      !testConfigOpen() &&
+      !testFixOpen() &&
+      !(reviewTab() && hasReview())
+    )
+      return
 
     const next = activeTab()
     if (next === "empty") return
@@ -1939,6 +1966,23 @@ function PageContent() {
                         </div>
                       </Tabs.Trigger>
                     </Show>
+                    <Show when={testFixOpen()}>
+                      <Tabs.Trigger
+                        value="test-fix"
+                        closeButton={
+                          <Tooltip value="Close tab" placement="bottom">
+                            <IconButton icon="close" variant="ghost" onClick={() => tabs().close("test-fix")} />
+                          </Tooltip>
+                        }
+                        hideCloseButton
+                        onMiddleClick={() => tabs().close("test-fix")}
+                      >
+                        <div class="flex items-center gap-2">
+                          <Icon name="circle-check" size="small" />
+                          <div>Test Fix</div>
+                        </div>
+                      </Tabs.Trigger>
+                    </Show>
                     <SortableProvider ids={openedTabs()}>
                       <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
                     </SortableProvider>
@@ -2019,6 +2063,15 @@ function PageContent() {
                     <Show when={activeTab() === "test-config"}>
                       <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
                         <SessionTestConfigTab />
+                      </div>
+                    </Show>
+                  </Tabs.Content>
+                </Show>
+                <Show when={testFixOpen()}>
+                  <Tabs.Content value="test-fix" class="flex flex-col h-full overflow-hidden contain-strict">
+                    <Show when={activeTab() === "test-fix"}>
+                      <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
+                        <SessionTestFixTab />
                       </div>
                     </Show>
                   </Tabs.Content>

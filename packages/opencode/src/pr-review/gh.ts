@@ -12,7 +12,7 @@ export namespace GH {
     state: string
   }
 
-  interface ReviewComment {
+  export interface ReviewComment {
     id: number
     body: string
     path?: string
@@ -74,19 +74,50 @@ export namespace GH {
       return []
     }
 
-    // Only fetch review comments (code-level comments with diff_hunk/path).
+    // Only fetch review comments (file-level code comments).
     // Issue comments (e.g. "@codex review") are not actionable review feedback
     // and should not trigger fix cycles.
-    const reviewResult = await exec(["api", `repos/{owner}/{repo}/pulls/${prNumber}/comments`, "--jq", "."])
+    const reviewResult = await exec([
+      "api",
+      `repos/{owner}/{repo}/pulls/${prNumber}/comments`,
+      "--paginate",
+      "--jq",
+      ".[]",
+    ])
 
     const comments: ReviewComment[] = []
 
     if (reviewResult.exitCode === 0 && reviewResult.stdout) {
-      const reviewComments = JSON.parse(reviewResult.stdout) as any[]
+      const reviewComments = reviewResult.stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .flatMap((line) => {
+          try {
+            return [JSON.parse(line)]
+          } catch {
+            return []
+          }
+        })
+        .filter(
+          (
+            comment,
+          ): comment is {
+            id: number
+            body: string
+            path?: string
+            line?: number
+            original_line?: number
+            user: { login: string }
+            created_at: string
+            updated_at: string
+          } => typeof comment === "object" && comment !== null && typeof (comment as { id: unknown }).id === "number",
+        )
+
       for (const c of reviewComments) {
         if (new Date(c.updated_at) <= new Date(commitTimestamp)) continue
-        // Only include comments that reference a specific file with a code snippet
-        if (!c.path || !c.diff_hunk) continue
+        // Only include comments that reference a specific file
+        if (!c.path) continue
         comments.push({
           id: c.id,
           body: c.body,

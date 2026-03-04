@@ -272,7 +272,7 @@ export function SessionTestConfigTab() {
                 <div class="flex items-center gap-2 text-12-regular">
                   <span class="text-text-weak w-20">Docker</span>
                   <span class="text-text-base font-medium">
-                    {config()!.docker?.enabled ? config()!.docker?.image ?? "enabled" : "disabled"}
+                    {config()!.docker?.enabled ? (config()!.docker?.image ?? "enabled") : "disabled"}
                   </span>
                 </div>
               </Show>
@@ -303,9 +303,7 @@ export function SessionTestConfigTab() {
               <Show when={config()?.paths?.tests}>
                 <div class="flex items-center gap-2 text-12-regular">
                   <span class="text-text-weak w-20">Tests</span>
-                  <span class="text-text-base font-mono text-11-regular">
-                    {config()!.paths!.tests!.join(", ")}
-                  </span>
+                  <span class="text-text-base font-mono text-11-regular">{config()!.paths!.tests!.join(", ")}</span>
                 </div>
               </Show>
               <Show when={config()?.test_methods}>
@@ -367,7 +365,9 @@ export function SessionTestConfigTab() {
                         </code>
                       </Show>
                       <Show when={config()?.test_methods?.e2e?.runner}>
-                        <span class="text-11-regular text-text-weak">Runner: {config()?.test_methods?.e2e?.runner}</span>
+                        <span class="text-11-regular text-text-weak">
+                          Runner: {config()?.test_methods?.e2e?.runner}
+                        </span>
                       </Show>
                       <Show when={configValue(config()?.test_methods?.e2e?.settings, "base_url")}>
                         <span class="text-11-regular text-text-weak">
@@ -408,7 +408,9 @@ export function SessionTestConfigTab() {
                   <Show when={e2eNeedsAttention()}>
                     <div class="text-11-regular text-text-weak">E2E is required but has not passed validation yet.</div>
                   </Show>
-                  <For each={warnings()}>{(warning) => <div class="text-11-regular text-text-weak">{warning}</div>}</For>
+                  <For each={warnings()}>
+                    {(warning) => <div class="text-11-regular text-text-weak">{warning}</div>}
+                  </For>
                 </div>
               </Show>
             </div>

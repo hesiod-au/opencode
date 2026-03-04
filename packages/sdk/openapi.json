@@ -326,6 +326,53 @@
         ]
       }
     },
+    "/project/branch": {
+      "get": {
+        "operationId": "project.branch",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Get current git branch",
+        "description": "Returns the current git branch name for the active project.",
+        "responses": {
+          "200": {
+            "description": "Current branch name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "branch": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["branch"]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.project.branch({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/project/{projectID}": {
       "patch": {
         "operationId": "project.update",
@@ -5308,6 +5355,9 @@
                     "phaseDetail": {
                       "type": "string"
                     },
+                    "stopReason": {
+                      "type": "string"
+                    },
                     "taskList": {
                       "type": "object",
                       "properties": {
@@ -6476,6 +6526,9 @@
                   "properties": {
                     "ok": {
                       "type": "boolean"
+                    },
+                    "sessionId": {
+                      "type": "string"
                     }
                   },
                   "required": ["ok"]
@@ -9239,6 +9292,16 @@
               }
             },
             "required": ["type"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "waiting"
+              }
+            },
+            "required": ["type"]
           }
         ]
       },
@@ -9823,6 +9886,239 @@
               }
             },
             "required": ["sessionID", "todos"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.workflow.started": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "workflow.started"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "workflowId": {
+                "type": "string"
+              },
+              "parentSessionId": {
+                "type": "string"
+              },
+              "runId": {
+                "type": "string"
+              }
+            },
+            "required": ["workflowId"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.workflow.stopped": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "workflow.stopped"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "workflowId": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string",
+                "enum": ["completed", "error", "manual"]
+              },
+              "reportSessionId": {
+                "type": "string"
+              },
+              "runId": {
+                "type": "string"
+              }
+            },
+            "required": ["workflowId", "reason"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.workflow.phase_changed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "workflow.phase_changed"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "workflowId": {
+                "type": "string"
+              },
+              "phase": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              },
+              "runId": {
+                "type": "string"
+              }
+            },
+            "required": ["workflowId", "phase"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.workflow.progress": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "workflow.progress"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "workflowId": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "runId": {
+                "type": "string"
+              },
+              "progress": {
+                "type": "object",
+                "properties": {
+                  "current": {
+                    "type": "number"
+                  },
+                  "total": {
+                    "type": "number"
+                  },
+                  "label": {
+                    "type": "string"
+                  }
+                },
+                "required": ["current", "total"]
+              }
+            },
+            "required": ["workflowId", "message"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.workflow.step_started": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "workflow.step_started"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "workflowId": {
+                "type": "string"
+              },
+              "stepId": {
+                "type": "string"
+              },
+              "stepIndex": {
+                "type": "number"
+              }
+            },
+            "required": ["workflowId", "stepId", "stepIndex"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.workflow.step_completed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "workflow.step_completed"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "workflowId": {
+                "type": "string"
+              },
+              "stepId": {
+                "type": "string"
+              },
+              "stepIndex": {
+                "type": "number"
+              }
+            },
+            "required": ["workflowId", "stepId", "stepIndex"]
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.workflow.status_changed": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "workflow.status_changed"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "workflowId": {
+                "type": "string"
+              },
+              "runId": {
+                "type": "string"
+              },
+              "status": {
+                "type": "object",
+                "properties": {
+                  "running": {
+                    "type": "boolean"
+                  },
+                  "phase": {
+                    "type": "string"
+                  },
+                  "phaseDetail": {
+                    "type": "string"
+                  },
+                  "parentSessionId": {
+                    "type": "string"
+                  },
+                  "startedAt": {
+                    "type": "number"
+                  },
+                  "completedAt": {
+                    "type": "number"
+                  },
+                  "progress": {
+                    "type": "object",
+                    "properties": {
+                      "current": {
+                        "type": "number"
+                      },
+                      "total": {
+                        "type": "number"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["current", "total"]
+                  }
+                },
+                "required": ["running"]
+              }
+            },
+            "required": ["workflowId", "runId", "status"]
           }
         },
         "required": ["type", "properties"]
@@ -10427,101 +10723,6 @@
         },
         "required": ["type", "properties"]
       },
-      "Event.workflow.started": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "workflow.started"
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "workflowId": {
-                "type": "string"
-              },
-              "parentSessionId": {
-                "type": "string"
-              }
-            },
-            "required": ["workflowId"]
-          }
-        },
-        "required": ["type", "properties"]
-      },
-      "Event.workflow.stopped": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "workflow.stopped"
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "workflowId": {
-                "type": "string"
-              },
-              "reason": {
-                "type": "string",
-                "enum": ["completed", "error", "manual"]
-              },
-              "reportSessionId": {
-                "type": "string"
-              }
-            },
-            "required": ["workflowId", "reason"]
-          }
-        },
-        "required": ["type", "properties"]
-      },
-      "Event.workflow.phase_changed": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "workflow.phase_changed"
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "workflowId": {
-                "type": "string"
-              },
-              "phase": {
-                "type": "string"
-              },
-              "detail": {
-                "type": "string"
-              }
-            },
-            "required": ["workflowId", "phase"]
-          }
-        },
-        "required": ["type", "properties"]
-      },
-      "Event.workflow.progress": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "const": "workflow.progress"
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "workflowId": {
-                "type": "string"
-              },
-              "message": {
-                "type": "string"
-              }
-            },
-            "required": ["workflowId", "message"]
-          }
-        },
-        "required": ["type", "properties"]
-      },
       "Event.pr-review.cycle.started": {
         "type": "object",
         "properties": {
@@ -10576,6 +10777,46 @@
           "properties": {
             "type": "object",
             "properties": {}
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.test-config.analysis.complete": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "test-config.analysis.complete"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "language": {
+                "type": "string"
+              },
+              "framework": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": ["type", "properties"]
+      },
+      "Event.test-config.config.written": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "test-config.config.written"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": ["path"]
           }
         },
         "required": ["type", "properties"]
@@ -10688,6 +10929,27 @@
             "$ref": "#/components/schemas/Event.todo.updated"
           },
           {
+            "$ref": "#/components/schemas/Event.workflow.started"
+          },
+          {
+            "$ref": "#/components/schemas/Event.workflow.stopped"
+          },
+          {
+            "$ref": "#/components/schemas/Event.workflow.phase_changed"
+          },
+          {
+            "$ref": "#/components/schemas/Event.workflow.progress"
+          },
+          {
+            "$ref": "#/components/schemas/Event.workflow.step_started"
+          },
+          {
+            "$ref": "#/components/schemas/Event.workflow.step_completed"
+          },
+          {
+            "$ref": "#/components/schemas/Event.workflow.status_changed"
+          },
+          {
             "$ref": "#/components/schemas/Event.tui.prompt.append"
           },
           {
@@ -10745,18 +11007,6 @@
             "$ref": "#/components/schemas/Event.worktree.failed"
           },
           {
-            "$ref": "#/components/schemas/Event.workflow.started"
-          },
-          {
-            "$ref": "#/components/schemas/Event.workflow.stopped"
-          },
-          {
-            "$ref": "#/components/schemas/Event.workflow.phase_changed"
-          },
-          {
-            "$ref": "#/components/schemas/Event.workflow.progress"
-          },
-          {
             "$ref": "#/components/schemas/Event.pr-review.cycle.started"
           },
           {
@@ -10764,6 +11014,12 @@
           },
           {
             "$ref": "#/components/schemas/Event.pr-review.no_new_comments"
+          },
+          {
+            "$ref": "#/components/schemas/Event.test-config.analysis.complete"
+          },
+          {
+            "$ref": "#/components/schemas/Event.test-config.config.written"
           }
         ]
       },
@@ -12345,6 +12601,10 @@
                 "description": "Max review/fix cycles (default: 20)",
                 "type": "number"
               },
+              "maxRecheckAttempts": {
+                "description": "Max re-check attempts when no new actionable comments exist (default: 5)",
+                "type": "number"
+              },
               "testCommand": {
                 "description": "Test command (auto-detected if omitted)",
                 "type": "string"
@@ -13319,11 +13579,24 @@
           "running": {
             "type": "boolean"
           },
+          "runId": {
+            "type": "string"
+          },
           "hasConfirm": {
+            "type": "boolean"
+          },
+          "activationMode": {
+            "type": "string",
+            "enum": ["start", "enable", "both"]
+          },
+          "steps": {
+            "type": "number"
+          },
+          "toolInvocable": {
             "type": "boolean"
           }
         },
-        "required": ["id", "name", "running", "hasConfirm"]
+        "required": ["id", "name", "running", "hasConfirm", "activationMode", "toolInvocable"]
       },
       "WorkflowStatus": {
         "type": "object",
@@ -13345,6 +13618,24 @@
           },
           "completedAt": {
             "type": "number"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "progress": {
+            "type": "object",
+            "properties": {
+              "current": {
+                "type": "number"
+              },
+              "total": {
+                "type": "number"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": ["current", "total"]
           },
           "stats": {
             "type": "object",

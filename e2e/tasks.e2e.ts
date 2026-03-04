@@ -90,7 +90,10 @@ async function navigateToTasksTab(ctx: TestContext) {
     let inputFound = false
     for (const line of iLines) {
       // Look for textbox, combobox, or paragraph (contenteditable divs sometimes show as paragraph)
-      if ((line.includes("textbox") || line.includes("combobox") || line.includes("paragraph")) && line.includes("[ref=")) {
+      if (
+        (line.includes("textbox") || line.includes("combobox") || line.includes("paragraph")) &&
+        line.includes("[ref=")
+      ) {
         const match = line.match(/\[ref=(e\d+)\]/)
         if (match) {
           console.log(`    Found potential input @${match[1]}, attempting to fill...`)
@@ -229,10 +232,8 @@ test("Tasks tab opens and shows disabled state", async (ctx) => {
   const snapshot = await navigateToTasksTab(ctx)
 
   // Check for disabled or enabled state
-  const isDisabled = snapshot.includes("Task mode is not enabled") ||
-                     snapshot.includes("Enable Task Mode")
-  const isEnabled = snapshot.includes("Task Mode") &&
-                    (snapshot.includes("Running") || snapshot.includes("Stopped"))
+  const isDisabled = snapshot.includes("Task mode is not enabled") || snapshot.includes("Enable Task Mode")
+  const isEnabled = snapshot.includes("Task Mode") && (snapshot.includes("Running") || snapshot.includes("Stopped"))
 
   if (isEnabled) {
     console.log("    Task mode is currently ENABLED")
@@ -347,9 +348,10 @@ test("Enable Task Mode button enables task mode", async (ctx) => {
 
   snapshot = await ctx.run("snapshot")
 
-  const isEnabled = (snapshot.includes("Task Mode") && snapshot.includes("Running")) ||
-                    (snapshot.includes("Task Mode") && snapshot.includes("Stopped")) ||
-                    snapshot.includes("Disable")
+  const isEnabled =
+    (snapshot.includes("Task Mode") && snapshot.includes("Running")) ||
+    (snapshot.includes("Task Mode") && snapshot.includes("Stopped")) ||
+    snapshot.includes("Disable")
 
   if (!isEnabled) {
     throw new Error("Task mode did not enable - still showing disabled state or unknown state")
@@ -463,9 +465,8 @@ test("Enabled state shows folder info", async (ctx) => {
 
   snapshot = await ctx.run("snapshot")
 
-  const hasFolderInfo = snapshot.includes("Folder:") ||
-                        snapshot.includes(".opencode/tasks") ||
-                        snapshot.includes("default")
+  const hasFolderInfo =
+    snapshot.includes("Folder:") || snapshot.includes(".opencode/tasks") || snapshot.includes("default")
 
   if (!hasFolderInfo) {
     throw new Error("Enabled state missing folder info")
@@ -534,10 +535,11 @@ test("Toast notification appears when enabling task mode", async (ctx) => {
 
   snapshot = await ctx.run("snapshot")
 
-  const hasToast = snapshot.includes("Task mode enabled") ||
-                   snapshot.includes("enabled") ||
-                   snapshot.includes("Using folder") ||
-                   snapshot.includes("Notification")
+  const hasToast =
+    snapshot.includes("Task mode enabled") ||
+    snapshot.includes("enabled") ||
+    snapshot.includes("Using folder") ||
+    snapshot.includes("Notification")
 
   if (hasToast) {
     console.log("    Toast notification detected")

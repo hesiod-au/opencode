@@ -178,6 +178,7 @@ export function createChildStoreManager(input: {
             mcp: {},
             lsp: [],
             vcs: vcsStore.value,
+            workflow_status: {},
             limit: 5,
             message: {},
             part: {},

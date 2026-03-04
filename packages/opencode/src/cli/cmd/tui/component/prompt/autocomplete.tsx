@@ -330,8 +330,23 @@ export function Autocomplete(props: {
     return options
   })
 
+  const normalizeAgents = (input: unknown): typeof sync.data.agent => {
+    if (Array.isArray(input)) return input as typeof sync.data.agent
+    if (input && typeof input === "object") {
+      const nested = (input as { data?: unknown }).data
+      if (Array.isArray(nested)) return nested as typeof sync.data.agent
+
+      const mapped = Object.values(input).filter(
+        (value): value is (typeof sync.data.agent)[number] =>
+          !!value && typeof value === "object" && typeof (value as { name?: unknown }).name === "string",
+      )
+      if (mapped.length > 0) return mapped
+    }
+    return []
+  }
+
   const agents = createMemo(() => {
-    const agents = sync.data.agent
+    const agents = normalizeAgents(sync.data.agent)
     return agents
       .filter((agent) => !agent.hidden && agent.mode !== "primary")
       .map(

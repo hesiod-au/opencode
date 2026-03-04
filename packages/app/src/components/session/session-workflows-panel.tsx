@@ -1,5 +1,6 @@
 import { createSignal, createEffect, onCleanup, Show, For } from "solid-js"
 import { useSDK } from "@/context/sdk"
+import { useGlobalSync } from "@/context/global-sync"
 import { useNavigate, useParams } from "@solidjs/router"
 import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -16,6 +17,12 @@ interface WorkflowStatus {
   running: boolean
   phase?: string
   phaseDetail?: string
+  runId?: string
+  progress?: {
+    current: number
+    total: number
+    label?: string
+  }
 }
 
 interface TaskFolder {
@@ -33,6 +40,26 @@ function uniqueTaskName(branch: string, existing: string[]) {
   let i = 1
   while (existing.includes(`${base}-${i}`)) i++
   return `${base}-${i}`
+}
+
+function WorkflowProgress(props: { progress: { current: number; total: number; label?: string } }) {
+  const percent = props.progress.total > 0 ? (props.progress.current / props.progress.total) * 100 : 0
+  return (
+    <div class="flex flex-col gap-1">
+      <div class="flex items-center justify-between text-11-regular text-text-weak">
+        <span>
+          {props.progress.current} / {props.progress.total} {props.progress.label ?? "items"}
+        </span>
+        <span>{Math.round(percent)}%</span>
+      </div>
+      <div class="h-1.5 rounded-full bg-surface-inset overflow-hidden">
+        <div
+          class="h-full bg-syntax-success transition-all duration-300"
+          style={{ width: `${Math.min(percent, 100)}%` }}
+        />
+      </div>
+    </div>
+  )
 }
 
 export function TaskModeCard(props: {
@@ -240,29 +267,34 @@ function TestConfigCard(props: {
       <Show
         when={!props.status?.running}
         fallback={
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2 text-12-regular text-text-weak">
-              <Icon name="settings-gear" size="small" class="animate-spin text-syntax-info" />
-              <span>{props.status?.phase ?? "running"}</span>
-              <Show when={props.status?.phaseDetail}>
-                <span class="text-text-weaker">— {props.status?.phaseDetail}</span>
-              </Show>
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 text-12-regular text-text-weak">
+                <Icon name="settings-gear" size="small" class="animate-spin text-syntax-info" />
+                <span>{props.status?.phase ?? "running"}</span>
+                <Show when={props.status?.phaseDetail}>
+                  <span class="text-text-weaker">— {props.status?.phaseDetail}</span>
+                </Show>
+              </div>
+              <button
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-raised-base text-text-base hover:bg-surface-raised-base-hover disabled:opacity-50 text-12-medium border border-border-base"
+                onClick={handleStop}
+                disabled={stopping()}
+              >
+                <Show when={stopping()} fallback={<Icon name="stop" size="small" />}>
+                  <Icon name="settings-gear" size="small" class="animate-spin" />
+                </Show>
+                Stop
+              </button>
             </div>
-            <button
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-raised-base text-text-base hover:bg-surface-raised-base-hover disabled:opacity-50 text-12-medium border border-border-base"
-              onClick={handleStop}
-              disabled={stopping()}
-            >
-              <Show when={stopping()} fallback={<Icon name="stop" size="small" />}>
-                <Icon name="settings-gear" size="small" class="animate-spin" />
-              </Show>
-              Stop
-            </button>
+            <Show when={props.status?.progress}>{(p) => <WorkflowProgress progress={p()} />}</Show>
           </div>
         }
       >
         <div class="flex flex-col gap-2">
-          <div class="text-12-regular text-text-weak">Analyze project and generate unit, endpoint, and e2e test methods</div>
+          <div class="text-12-regular text-text-weak">
+            Analyze project and generate unit, endpoint, and e2e test methods
+          </div>
           <div class="flex justify-end">
             <button
               class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-primary text-text-on-primary hover:bg-surface-primary-hover disabled:opacity-50 text-12-medium"
@@ -334,9 +366,12 @@ function PRReviewCard(props: {
   const handleStop = async () => {
     setStopping(true)
     try {
-      const res = await fetch(`${props.sdkUrl}/workflow/pr-review/stop?directory=${encodeURIComponent(props.directory)}`, {
-        method: "POST",
-      })
+      const res = await fetch(
+        `${props.sdkUrl}/workflow/pr-review/stop?directory=${encodeURIComponent(props.directory)}`,
+        {
+          method: "POST",
+        },
+      )
       if (!res.ok) throw new Error("Failed to stop PR review workflow")
       showToast({ title: "PR review workflow stopped", variant: "success" })
       props.onStatusChange?.()
@@ -364,24 +399,27 @@ function PRReviewCard(props: {
       <Show
         when={!props.status?.running}
         fallback={
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2 text-12-regular text-text-weak">
-              <Icon name="settings-gear" size="small" class="animate-spin text-syntax-info" />
-              <span>{props.status?.phase ?? "running"}</span>
-              <Show when={props.status?.phaseDetail}>
-                <span class="text-text-weaker">— {props.status?.phaseDetail}</span>
-              </Show>
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 text-12-regular text-text-weak">
+                <Icon name="settings-gear" size="small" class="animate-spin text-syntax-info" />
+                <span>{props.status?.phase ?? "running"}</span>
+                <Show when={props.status?.phaseDetail}>
+                  <span class="text-text-weaker">— {props.status?.phaseDetail}</span>
+                </Show>
+              </div>
+              <button
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-raised-base text-text-base hover:bg-surface-raised-base-hover disabled:opacity-50 text-12-medium border border-border-base"
+                onClick={handleStop}
+                disabled={stopping()}
+              >
+                <Show when={stopping()} fallback={<Icon name="stop" size="small" />}>
+                  <Icon name="settings-gear" size="small" class="animate-spin" />
+                </Show>
+                Stop
+              </button>
             </div>
-            <button
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-raised-base text-text-base hover:bg-surface-raised-base-hover disabled:opacity-50 text-12-medium border border-border-base"
-              onClick={handleStop}
-              disabled={stopping()}
-            >
-              <Show when={stopping()} fallback={<Icon name="stop" size="small" />}>
-                <Icon name="settings-gear" size="small" class="animate-spin" />
-              </Show>
-              Stop
-            </button>
+            <Show when={props.status?.progress}>{(p) => <WorkflowProgress progress={p()} />}</Show>
           </div>
         }
       >
@@ -440,48 +478,39 @@ function PRReviewCard(props: {
 
 export function WorkflowPanel(props: { onStatusChange?: () => void }) {
   const sdk = useSDK()
+  const sync = useGlobalSync()
   const navigate = useNavigate()
   const params = useParams<{ dir: string }>()
   const [workflows, setWorkflows] = createSignal<WorkflowInfo[]>([])
-  const [statuses, setStatuses] = createSignal<Record<string, WorkflowStatus>>({})
 
   const navigateToSession = (sessionId: string) => {
     navigate(`/${params.dir}/session/${sessionId}`)
   }
 
-  const fetchAll = async () => {
+  const fetchWorkflows = async () => {
     try {
       const res = await fetch(`${sdk.url}/workflow/list`)
       if (!res.ok) return
       const list: WorkflowInfo[] = await res.json()
       setWorkflows(list)
-
-      const statusEntries = await Promise.all(
-        list.map(async (wf) => {
-          try {
-            const r = await fetch(`${sdk.url}/workflow/${wf.id}/status`)
-            const s: WorkflowStatus = r.ok ? await r.json() : { running: false }
-            return [wf.id, s] as const
-          } catch {
-            return [wf.id, { running: false }] as const
-          }
-        }),
-      )
-      setStatuses(Object.fromEntries(statusEntries))
     } catch {
       // ignore
     }
   }
 
+  // Fetch workflows on mount
   createEffect(() => {
-    fetchAll()
-    const interval = setInterval(fetchAll, 5000)
-    onCleanup(() => clearInterval(interval))
+    fetchWorkflows()
   })
 
   const handleStatusChange = () => {
-    fetchAll()
+    fetchWorkflows()
     props.onStatusChange?.()
+  }
+
+  // Get status from reactive store instead of polling
+  const getStatus = (workflowId: string): WorkflowStatus | undefined => {
+    return sync.child(sdk.directory)[0].workflow_status[workflowId]
   }
 
   return (
@@ -493,7 +522,7 @@ export function WorkflowPanel(props: { onStatusChange?: () => void }) {
             <Show when={wf.activationMode === "enable" || wf.activationMode === "both"}>
               <Show when={wf.id === "task"}>
                 <TaskModeCard
-                  status={statuses()[wf.id]}
+                  status={getStatus(wf.id)}
                   sdkUrl={sdk.url}
                   directory={sdk.directory}
                   onStatusChange={handleStatusChange}
@@ -503,7 +532,7 @@ export function WorkflowPanel(props: { onStatusChange?: () => void }) {
             <Show when={wf.activationMode === "start" || wf.activationMode === "both"}>
               <Show when={wf.id === "pr-review"}>
                 <PRReviewCard
-                  status={statuses()[wf.id]}
+                  status={getStatus(wf.id)}
                   sdkUrl={sdk.url}
                   directory={sdk.directory}
                   onStatusChange={handleStatusChange}
@@ -512,7 +541,7 @@ export function WorkflowPanel(props: { onStatusChange?: () => void }) {
               </Show>
               <Show when={wf.id === "test-config"}>
                 <TestConfigCard
-                  status={statuses()[wf.id]}
+                  status={getStatus(wf.id)}
                   sdkUrl={sdk.url}
                   directory={sdk.directory}
                   onStatusChange={handleStatusChange}

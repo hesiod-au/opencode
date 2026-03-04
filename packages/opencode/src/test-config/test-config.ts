@@ -7,6 +7,7 @@ import { Identifier } from "../id/id"
 import { Instance } from "../project/instance"
 import { WorkflowEvent } from "../workflow/events"
 import { TestConfigEvent } from "./events"
+import { ComposableWorkflow } from "../workflow/composable"
 import type { Workflow } from "../workflow/workflow"
 import fs from "fs/promises"
 import path from "path"
@@ -14,7 +15,6 @@ import path from "path"
 export namespace TestConfigWorkflow {
   const log = Log.create({ service: "test-config" })
 
-  type Phase = "analyzing" | "generating" | "validating" | "complete"
   type MethodName = "unit" | "endpoint" | "e2e"
   type ValidationName = MethodName | "default"
 
@@ -29,26 +29,6 @@ export namespace TestConfigWorkflow {
     runnable: ValidationTarget[]
     missingRequired: MethodName[]
   }
-
-  interface State {
-    running: boolean
-    phase?: Phase
-    phaseDetail?: string
-    orchestratorSessionId?: string
-    startedAt: number
-    completedAt?: number
-    abortController: AbortController
-    progressLog: Array<{ message: string; timestamp: number }>
-    stats: {
-      inputTokens: number
-      outputTokens: number
-      cost: number
-      modifiedFiles: string[]
-    }
-    configContents?: Record<string, unknown>
-  }
-
-  let state: State | null = null
 
   function toObject(value: unknown): Record<string, unknown> | undefined {
     if (!value || typeof value !== "object" || Array.isArray(value)) return
@@ -110,156 +90,18 @@ export namespace TestConfigWorkflow {
     return { mode: "none", runnable: [], missingRequired: [] }
   }
 
-  function setPhase(phase: Phase, detail?: string) {
-    if (!state) return
-    state.phase = phase
-    state.phaseDetail = detail
-    log.info("phase changed", { phase, detail })
-
-    Bus.publish(WorkflowEvent.PhaseChanged, {
-      workflowId: "test-config",
-      phase,
-      detail,
-    })
-  }
-
-  async function logToSession(text: string): Promise<void> {
-    if (!state?.orchestratorSessionId) return
-    try {
-      const agent = await Agent.get("build")
-      const model = agent?.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
-      const messageID = Identifier.ascending("message")
-      const partID = Identifier.ascending("part")
-      await Session.updateMessage({
-        id: messageID,
-        sessionID: state.orchestratorSessionId,
-        role: "user",
-        time: { created: Date.now() },
-        agent: "build",
-        model,
-      })
-      await Session.updatePart({
-        id: partID,
-        sessionID: state.orchestratorSessionId,
-        messageID,
-        type: "text",
-        text,
-        synthetic: true,
-      })
-    } catch (err) {
-      log.error("logToSession failed", { error: err })
-    }
-  }
-
-  function progress(message: string) {
-    log.info("progress", { message })
-    if (state) {
-      state.progressLog.push({ message, timestamp: Date.now() })
-      if (state.progressLog.length > 100) state.progressLog.shift()
-    }
-    Bus.publish(WorkflowEvent.Progress, {
-      workflowId: "test-config",
-      message,
-    })
-    logToSession(message).catch((err) => log.error("logToSession error", { error: err }))
-  }
-
-  async function configExists(): Promise<boolean> {
-    const path = `${Instance.directory}/test-config.json`
-    return Bun.file(path)
-      .exists()
-      .catch(() => false)
-  }
-
   async function readConfig(): Promise<Record<string, unknown> | undefined> {
-    const path = `${Instance.directory}/test-config.json`
-    const exists = await Bun.file(path)
+    const configPath = `${Instance.directory}/test-config.json`
+    const exists = await Bun.file(configPath)
       .exists()
       .catch(() => false)
     if (!exists) return undefined
     try {
-      const text = await Bun.file(path).text()
+      const text = await Bun.file(configPath).text()
       return parseConfig(JSON.parse(text))
     } catch {
       return undefined
     }
-  }
-
-  export const definition: Workflow.Definition<Phase> = {
-    id: "test-config",
-    name: "Test Config",
-    activationMode: "start",
-
-    async start() {
-      if (state?.running) {
-        log.warn("test-config workflow already running")
-        return
-      }
-
-      const orchestratorSession = await Session.create({
-        title: "Test Config",
-      })
-
-      state = {
-        running: true,
-        orchestratorSessionId: orchestratorSession.id,
-        startedAt: Date.now(),
-        abortController: new AbortController(),
-        progressLog: [],
-        stats: { inputTokens: 0, outputTokens: 0, cost: 0, modifiedFiles: [] },
-      }
-
-      Bus.publish(WorkflowEvent.Started, {
-        workflowId: "test-config",
-        parentSessionId: orchestratorSession.id,
-      })
-
-      try {
-        await run()
-      } catch (err: any) {
-        log.error("test-config error", { error: err })
-        progress(`Error: ${err.message}`)
-        await definition.stop("error")
-      }
-    },
-
-    async stop(reason) {
-      if (!state) return
-      log.info("stopping test-config", { reason })
-
-      state.running = false
-      state.completedAt = Date.now()
-      state.abortController.abort()
-
-      Bus.publish(WorkflowEvent.Stopped, {
-        workflowId: "test-config",
-        reason,
-      })
-
-      state = null
-    },
-
-    getStatus() {
-      return {
-        running: state?.running ?? false,
-        phase: state?.phase,
-        phaseDetail: state?.phaseDetail,
-        parentSessionId: state?.orchestratorSessionId,
-        startedAt: state?.startedAt,
-        completedAt: state?.completedAt,
-        stats: state?.stats,
-        extra: {
-          progressLog: state?.progressLog ?? [],
-          orchestratorSessionId: state?.orchestratorSessionId,
-          configExists: state?.configContents !== undefined,
-          config: state?.configContents,
-        },
-      }
-    },
-
-    isRunning() {
-      return state?.running ?? false
-    },
   }
 
   async function addToGitignore() {
@@ -281,20 +123,19 @@ export namespace TestConfigWorkflow {
     }
   }
 
-  async function run() {
-    if (!state) return
+  const analyzeStep = ComposableWorkflow.step("analyze", "Analyze Project", async (ctx) => {
+    const orchestratorSession = await Session.create({
+      parentID: ctx.parentSessionId,
+      title: "Test Config — Analysis",
+    })
+    const sessionId = orchestratorSession.id
 
     const existing = await readConfig()
     const hasExisting = existing !== undefined
 
-    // Phase 1: Analyzing
-    setPhase("analyzing", hasExisting ? "Updating existing config" : "Discovering project structure")
-    progress(hasExisting ? "Found existing test-config.json, will validate and update" : "Analyzing project structure...")
-
-    const analyzeSession = await Session.create({
-      parentID: state.orchestratorSessionId,
-      title: "Test Config — Analysis",
-    })
+    ctx.progress(
+      hasExisting ? "Found existing test-config.json, will validate and update" : "Analyzing project structure...",
+    )
 
     const existingConfigBlock = hasExisting
       ? `\n\nAn existing test-config.json was found with this content:\n\`\`\`json\n${JSON.stringify(existing, null, 2)}\n\`\`\`\n\nValidate it and update only what's needed.`
@@ -386,76 +227,63 @@ Notes:
 - Use the actual commands that work for this project.`
 
     const agent = await Agent.get("build")
-    if (!agent) throw new Error("Build agent not found")
+    if (!agent) return { status: "error" as const, output: "Build agent not found" }
 
     const model = agent.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
 
     await SessionPrompt.prompt({
       messageID: Identifier.ascending("message"),
-      sessionID: analyzeSession.id,
+      sessionID: sessionId,
       model: { modelID: model.modelID, providerID: model.providerID },
       agent: agent.name,
       variant: "max",
-      tools: { question: false },
+      tools: { question: false, ...ctx.disabledTools },
       parts: [{ type: "text", text: analyzePrompt }],
     })
 
-    if (!state?.running) return
+    if (ctx.abort.aborted) return { status: "error" as const, output: "Aborted" }
 
-    setPhase("generating")
-    progress("Analysis complete, reading generated config...")
+    ctx.progress("Analysis complete, reading generated config...")
 
     const config = await readConfig()
     if (!config) {
-      progress("Agent did not write test-config.json. Stopping.")
-      await definition.stop("error")
-      return
+      return { status: "error" as const, output: "Agent did not write test-config.json" }
     }
 
     const language = toStringValue(config.language)
     const framework = toStringValue(config.framework)
 
-    Bus.publish(TestConfigEvent.AnalysisComplete, {
-      language,
-      framework,
-    })
-
-    Bus.publish(TestConfigEvent.ConfigWritten, {
-      path: `${Instance.directory}/test-config.json`,
-    })
+    Bus.publish(TestConfigEvent.AnalysisComplete, { language, framework })
+    Bus.publish(TestConfigEvent.ConfigWritten, { path: `${Instance.directory}/test-config.json` })
 
     await addToGitignore()
-    progress(`Config written: language=${language ?? "unknown"}, framework=${framework ?? "unknown"}`)
+    ctx.progress(`Config written: language=${language ?? "unknown"}, framework=${framework ?? "unknown"}`)
 
-    // Phase 2: Validating
-    if (!state?.running) return
+    return {
+      status: "completed" as const,
+      output: `Config generated: language=${language}, framework=${framework}`,
+      data: { config, sessionId },
+    }
+  })
+
+  const validateStep = ComposableWorkflow.step("validate", "Validate Config", async (ctx) => {
+    const config = (ctx.previousResult?.data?.config as Record<string, unknown>) ?? (await readConfig())
+    if (!config) return { status: "error" as const, output: "No config to validate" }
 
     const validationPlan = getValidationPlan(config)
     if (validationPlan.mode === "none") {
-      progress("No test command in config. Skipping validation.")
-      setPhase("complete")
-      state.configContents = config
-      state.completedAt = Date.now()
-      progress("Test config complete.")
-      await definition.stop("completed")
-      return
+      ctx.progress("No test command in config. Skipping validation.")
+      return { status: "completed" as const, output: "No validation needed", data: { config } }
     }
 
-    const runnableSummary = validationPlan.runnable
-      .map((item) => `${item.name}:${item.command}`)
-      .join(" | ")
+    const runnableSummary = validationPlan.runnable.map((item) => `${item.name}:${item.command}`).join(" | ")
     const missingSummary = validationPlan.missingRequired.join(", ")
 
-    setPhase("validating", "Running tests to verify config")
-    if (runnableSummary) {
-      progress(`Validating config by running: ${runnableSummary}`)
-    }
-    if (missingSummary) {
-      progress(`Required test methods missing commands: ${missingSummary}`)
-    }
+    if (runnableSummary) ctx.progress(`Validating config by running: ${runnableSummary}`)
+    if (missingSummary) ctx.progress(`Required test methods missing commands: ${missingSummary}`)
 
     const validateSession = await Session.create({
-      parentID: state.orchestratorSessionId,
+      parentID: ctx.parentSessionId,
       title: "Test Config — Validation",
     })
 
@@ -515,28 +343,59 @@ ${missingBlock}
 
 Important: Only modify test-config.json, do NOT modify the project's actual source or test files.`
 
+    const agent = await Agent.get("build")
+    if (!agent) return { status: "error" as const, output: "Build agent not found" }
+
+    const model = agent.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
+
     await SessionPrompt.prompt({
       messageID: Identifier.ascending("message"),
       sessionID: validateSession.id,
       model: { modelID: model.modelID, providerID: model.providerID },
       agent: agent.name,
       variant: "max",
-      tools: { question: false },
+      tools: { question: false, ...ctx.disabledTools },
       parts: [{ type: "text", text: validatePrompt }],
     })
 
-    if (!state?.running) return
+    if (ctx.abort.aborted) return { status: "error" as const, output: "Aborted" }
 
-    // Phase 3: Complete
-    setPhase("complete")
     const finalConfig = await readConfig()
-    state.configContents = finalConfig ?? config
-    const warnings = parseWarnings(state.configContents)
+    const result = finalConfig ?? config
+    const warnings = parseWarnings(result)
     if (warnings.length > 0) {
-      warnings.forEach((warning) => progress(`Warning: ${warning}`))
+      warnings.forEach((warning) => ctx.progress(`Warning: ${warning}`))
     }
-    state.completedAt = Date.now()
-    progress("Test config complete.")
-    await definition.stop("completed")
-  }
+    ctx.progress("Test config complete.")
+
+    return { status: "completed" as const, output: "Validation complete", data: { config: result } }
+  })
+
+  export const definition = ComposableWorkflow.define(
+    {
+      id: "test-config",
+      name: "Test Config",
+      activationMode: "start",
+      toolInvocable: {
+        description: [
+          "Analyze a project's structure and generate a test-config.json file at the project root.",
+          "",
+          "Use this tool when:",
+          "- The user asks to set up or configure testing for a project",
+          "- You need to discover available test commands, frameworks, and file patterns",
+          "- The user wants to create or update test-config.json",
+          "- You need to know how to run tests but no test-config.json exists yet",
+          "",
+          "This workflow runs in two phases:",
+          "1. Analyze — explores the project to detect language, framework, test commands, Docker support, and writes test-config.json",
+          "2. Validate — runs the detected test commands to verify they work, retrying up to 3 times and updating the config if commands fail",
+          "",
+          "The tool is long-running and autonomous. It returns when both phases complete or an error occurs.",
+          "Output includes the final status and any warnings from the generated config.",
+          "The generated test-config.json is automatically added to .gitignore.",
+        ].join("\n"),
+      },
+    },
+    [analyzeStep, validateStep],
+  )
 }

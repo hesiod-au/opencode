@@ -15,8 +15,11 @@ import { Identifier } from "../id/id"
 import { Agent } from "../agent/agent"
 import { Storage } from "../storage/storage"
 import { Snapshot } from "../snapshot"
+import { Workflow } from "../workflow/workflow"
+import { WorkflowState } from "../workflow/state"
 import fs from "fs/promises"
 import path from "path"
+import { WorkflowOrchestrator } from "../workflow/orchestrator"
 
 export namespace Orchestrator {
   const log = Log.create({ service: "orchestrator" })
@@ -50,6 +53,7 @@ export namespace Orchestrator {
 
   // Runtime state in memory
   interface OrchestratorState {
+    runId?: string
     running: boolean
     paths: TaskList.Paths
     parentSessionId?: string // Log to parent session (user's main session)
@@ -73,10 +77,22 @@ export namespace Orchestrator {
     }
   }
 
-  let state: OrchestratorState | null = null
-  let lastStopReason: string | null = null
+  const instanceState = Instance.state(
+    () => ({
+      current: null as OrchestratorState | null,
+      lastStopReason: null as string | null,
+      cachedModel: undefined as { providerID: string; modelID: string } | undefined,
+    }),
+    async (data) => {
+      if (data.current?.running) {
+        data.current.abortController?.abort()
+        if (data.current.pollInterval) clearInterval(data.current.pollInterval)
+      }
+    },
+  )
 
   function setPhase(phase: OrchestratorPhase, detail?: string): void {
+    const state = instanceState().current
     if (!state) return
     const previous = state.phase
     state.phase = phase
@@ -87,68 +103,40 @@ export namespace Orchestrator {
 
   // Log status message only if it's different from the last one (prevents spam)
   async function logStatus(key: string, text: string): Promise<void> {
+    const state = instanceState().current
     if (!state || state.lastStatusMessage === key) return
     state.lastStatusMessage = key
     await logAction(text)
   }
 
-  let cachedModel: { providerID: string; modelID: string } | undefined
   async function resolveModel(): Promise<{ providerID: string; modelID: string }> {
-    if (cachedModel) return cachedModel
+    const cached = instanceState().cachedModel
+    if (cached) return cached
     const agent = await Agent.get("build")
     if (agent?.model) {
-      cachedModel = { providerID: agent.model.providerID, modelID: agent.model.modelID }
-      return cachedModel
+      const model = { providerID: agent.model.providerID, modelID: agent.model.modelID }
+      instanceState().cachedModel = model
+      return model
     }
     const agents = await Agent.list()
     const first = agents[0]
     if (first?.model) {
-      cachedModel = { providerID: first.model.providerID, modelID: first.model.modelID }
-      return cachedModel
+      const model = { providerID: first.model.providerID, modelID: first.model.modelID }
+      instanceState().cachedModel = model
+      return model
     }
-    cachedModel = { providerID: "openai", modelID: "gpt-5.2-codex" }
-    return cachedModel
+    const model = { providerID: "openai", modelID: "gpt-5.2-codex" }
+    instanceState().cachedModel = model
+    return model
   }
 
   async function logAction(text: string): Promise<void> {
+    const state = instanceState().current
     if (!state?.parentSessionId) {
-      log.warn("logAction called but no parentSessionId", { text: text.slice(0, 50) })
-      return
+      log.error("logAction called without orchestrator session")
+      throw new Error("Orchestrator session not initialized")
     }
-
-    try {
-      const messageID = Identifier.ascending("message")
-      const partID = Identifier.ascending("part")
-      const model = await resolveModel()
-
-      log.info("logAction: creating message", {
-        messageID,
-        parentSessionId: state.parentSessionId,
-        text: text.slice(0, 50),
-      })
-
-      await Session.updateMessage({
-        id: messageID,
-        sessionID: state.parentSessionId,
-        role: "user",
-        time: { created: Date.now() },
-        agent: "build",
-        model,
-      })
-
-      await Session.updatePart({
-        id: partID,
-        sessionID: state.parentSessionId,
-        messageID,
-        type: "text",
-        text,
-        synthetic: true,
-      })
-
-      log.info("logAction: message created successfully", { messageID })
-    } catch (err) {
-      log.error("logAction failed", { error: err, text: text.slice(0, 50) })
-    }
+    await WorkflowOrchestrator.logProgress(state.parentSessionId, text)
   }
 
   async function createFinalReport(
@@ -163,6 +151,8 @@ export namespace Orchestrator {
       log.warn("cannot create final report without parent session")
       return undefined
     }
+
+    const state = instanceState().current
 
     try {
       // Create a child session for the final report
@@ -249,23 +239,50 @@ ${
 `
 
       // Write the report as a message in the report session
-      const messageID = Identifier.ascending("message")
-      const partID = Identifier.ascending("part")
-
       const model = await resolveModel()
+      const reportTime = Date.now()
+
+      // Create a synthetic user message first
+      const reportUserMsgID = Identifier.ascending("message")
       await Session.updateMessage({
-        id: messageID,
+        id: reportUserMsgID,
         sessionID: reportSession.id,
         role: "user",
-        time: { created: Date.now() },
+        time: { created: reportTime },
         agent: "build",
         model,
       })
 
       await Session.updatePart({
-        id: partID,
+        id: Identifier.ascending("part"),
         sessionID: reportSession.id,
-        messageID,
+        messageID: reportUserMsgID,
+        type: "text",
+        text: "Generate task mode report",
+        synthetic: true,
+      })
+
+      // Create assistant message with the report
+      const reportAsstMsgID = Identifier.ascending("message")
+      await Session.updateMessage({
+        id: reportAsstMsgID,
+        sessionID: reportSession.id,
+        role: "assistant",
+        parentID: reportUserMsgID,
+        time: { created: reportTime, completed: reportTime },
+        agent: "build",
+        modelID: model.modelID,
+        providerID: model.providerID,
+        mode: "default",
+        path: { cwd: Instance.directory, root: Instance.directory },
+        cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      })
+
+      await Session.updatePart({
+        id: Identifier.ascending("part"),
+        sessionID: reportSession.id,
+        messageID: reportAsstMsgID,
         type: "text",
         text: reportContent,
       })
@@ -578,6 +595,7 @@ The E2E test validates that all components work together correctly. Focus on int
         },
         agent: agent.name,
         variant: "max",
+        tools: { question: false, ...Workflow.buildDisabledTools({ id: "task", recursive: false }) },
         parts: [{ type: "text", text: prompt }],
       })
 
@@ -663,6 +681,7 @@ The E2E test validates that all components work together correctly. Focus on int
   }
 
   async function saveState(): Promise<void> {
+    const state = instanceState().current
     if (!state) return
 
     const persisted: PersistedState = {
@@ -718,13 +737,17 @@ The E2E test validates that all components work together correctly. Focus on int
     }
   }
 
-  export async function start(options?: { parentSessionId?: string; userPrompt?: string }): Promise<void> {
-    if (state?.running) {
+  export async function start(options?: {
+    parentSessionId?: string
+    userPrompt?: string
+    runId?: string
+  }): Promise<void> {
+    if (instanceState().current?.running) {
       log.warn("orchestrator already running")
       return
     }
 
-    lastStopReason = null
+    instanceState().lastStopReason = null
 
     const config = await Config.get()
     const taskModeConfig = config.taskMode
@@ -739,18 +762,15 @@ The E2E test validates that all components work together correctly. Focus on int
       taskModeConfig.listPath ?? ".opencode/tasks/default/task_list.md",
     )
 
-    // Use parent session for logging (user's main session)
-    const parentSessionId = options?.parentSessionId
-    log.info("orchestrator start options", {
-      parentSessionId,
-      hasParent: !!parentSessionId,
+    // Initialize orchestrator session (use existing or create new)
+    const orchestratorSessionId = await WorkflowOrchestrator.initializeOrchestrator(
+      "Task Mode",
+      options?.parentSessionId,
+    )
+    log.info("orchestrator initialized", {
+      orchestratorSessionId,
       userPrompt: options?.userPrompt?.slice(0, 50),
     })
-    if (parentSessionId) {
-      log.info("orchestrator will log to parent session", { parentSessionId })
-    } else {
-      log.warn("orchestrator started without parent session, actions will not be logged to UI")
-    }
 
     // Take a snapshot of the current working tree before any tasks run
     const startSnapshot = await Snapshot.track().catch((err) => {
@@ -758,10 +778,11 @@ The E2E test validates that all components work together correctly. Focus on int
       return undefined
     })
 
-    state = {
+    instanceState().current = {
+      runId: options?.runId,
       running: true,
       paths,
-      parentSessionId,
+      parentSessionId: orchestratorSessionId,
       activeTasks: new Map(),
       launchedTaskIds: new Set(),
       pollInterval: null,
@@ -782,6 +803,9 @@ The E2E test validates that all components work together correctly. Focus on int
     // Log initial action to parent session
     await logAction(`**Orchestrator started**\n\nTask list: \`${paths.taskListPath}\``)
 
+    // Set orchestrator to busy
+    WorkflowOrchestrator.setBusy(orchestratorSessionId)
+
     // Check for persisted state from previous run (recovery)
     const persistedState = await loadState(paths)
     if (persistedState && persistedState.running) {
@@ -794,26 +818,26 @@ The E2E test validates that all components work together correctly. Focus on int
       // Restore launched task IDs to prevent re-launching
       if (persistedState.launchedTaskIds) {
         for (const taskId of persistedState.launchedTaskIds) {
-          state.launchedTaskIds.add(taskId)
+          instanceState().current!.launchedTaskIds.add(taskId)
         }
-        log.info("restored launched task IDs", { count: state.launchedTaskIds.size })
+        log.info("restored launched task IDs", { count: instanceState().current!.launchedTaskIds.size })
       }
 
       // Restore stats from previous run
       if (persistedState.stats) {
-        state.stats.inputTokens = persistedState.stats.inputTokens
-        state.stats.outputTokens = persistedState.stats.outputTokens
-        state.stats.cost = persistedState.stats.cost ?? 0
+        instanceState().current!.stats.inputTokens = persistedState.stats.inputTokens
+        instanceState().current!.stats.outputTokens = persistedState.stats.outputTokens
+        instanceState().current!.stats.cost = persistedState.stats.cost ?? 0
         for (const file of persistedState.stats.modifiedFiles) {
-          state.stats.modifiedFiles.add(file)
+          instanceState().current!.stats.modifiedFiles.add(file)
         }
-        state.startedAt = persistedState.startedAt
+        instanceState().current!.startedAt = persistedState.startedAt
         log.info("restored stats from previous run", { stats: persistedState.stats })
       }
 
       // Restore start snapshot from previous run (for accurate final diff)
       if (persistedState.startSnapshot) {
-        state.startSnapshot = persistedState.startSnapshot
+        instanceState().current!.startSnapshot = persistedState.startSnapshot
         log.info("restored start snapshot from previous run", { startSnapshot: persistedState.startSnapshot })
       }
 
@@ -859,8 +883,8 @@ The E2E test validates that all components work together correctly. Focus on int
     // Check if all tasks are already done - skip orchestration and let normal coding agent handle it
     if (taskList && TaskList.isAllDone(taskList)) {
       log.info("all tasks already completed, skipping orchestration to allow normal conversation")
-      state.running = false
-      state = null
+      instanceState().current!.running = false
+      instanceState().current = null
       return
     }
 
@@ -888,7 +912,7 @@ The E2E test validates that all components work together correctly. Focus on int
 
         // Remove errored tasks from launchedTaskIds so they can be relaunched
         for (const taskId of erroredTaskIds) {
-          state.launchedTaskIds.delete(taskId)
+          instanceState().current!.launchedTaskIds.delete(taskId)
         }
 
         await logAction(
@@ -900,14 +924,15 @@ The E2E test validates that all components work together correctly. Focus on int
 
     // If user sent a message, check for tasks that were manually reset to "todo" via the UI
     // but are still in launchedTaskIds — clear them so orchestrator will re-run them
-    if (taskList && options?.userPrompt && state) {
+    if (taskList && options?.userPrompt && instanceState().current) {
+      const state = instanceState().current!
       const manuallyResetIds = taskList.tasks
-        .filter((t) => t.status === "todo" && state!.launchedTaskIds.has(t.id))
+        .filter((t) => t.status === "todo" && state.launchedTaskIds.has(t.id))
         .map((t) => t.id)
       if (manuallyResetIds.length > 0) {
         log.info("found manually-reset tasks, clearing from launchedTaskIds for re-execution", { manuallyResetIds })
         for (const taskId of manuallyResetIds) {
-          state!.launchedTaskIds.delete(taskId)
+          state.launchedTaskIds.delete(taskId)
         }
         await logAction(
           `**Re-queuing ${manuallyResetIds.length} manually-reset task(s):** ${manuallyResetIds.join(", ")}\n\n` +
@@ -921,10 +946,12 @@ The E2E test validates that all components work together correctly. Focus on int
       log.info("no task list found, launching planning agent", { hasUserPrompt: !!options?.userPrompt })
       setPhase("planning")
       await logAction("**Launching planning agent**")
+      const taskDisabledTools = Workflow.buildDisabledTools({ id: "task", recursive: false })
       const planningResult = await PlanningAgent.generatePlan({
         paths,
-        parentSessionId: state.parentSessionId,
+        parentSessionId: instanceState().current!.parentSessionId,
         userPrompt: options?.userPrompt,
+        disabledTools: taskDisabledTools,
       })
 
       // If planning failed, stop cleanly instead of falling through to runLoop
@@ -946,8 +973,9 @@ The E2E test validates that all components work together correctly. Focus on int
 
         const testWriterResult = await TestWriterAgent.run({
           paths,
-          parentSessionId: state.parentSessionId,
+          parentSessionId: instanceState().current!.parentSessionId,
           planningConversation,
+          disabledTools: taskDisabledTools,
         })
 
         if (!testWriterResult.success) {
@@ -963,6 +991,7 @@ The E2E test validates that all components work together correctly. Focus on int
         log.info("waiting for plan confirmation")
         setPhase("waiting-confirmation")
         await logAction("**Waiting for plan confirmation...**")
+        WorkflowOrchestrator.setWaiting(orchestratorSessionId)
         // The UI will call confirmPlan() when user confirms
         return
       }
@@ -978,6 +1007,7 @@ The E2E test validates that all components work together correctly. Focus on int
     reason: "completed" | "error" | "manual" = "manual",
     reportSessionId?: string,
   ): Promise<void> {
+    const state = instanceState().current
     if (!state) {
       log.warn("orchestrator not running")
       return
@@ -985,6 +1015,11 @@ The E2E test validates that all components work together correctly. Focus on int
 
     log.info("orchestrator stopping", { reason })
     await logAction(`**Orchestrator stopped:** ${reason}`)
+
+    // Set orchestrator to idle
+    if (state.parentSessionId) {
+      WorkflowOrchestrator.setIdle(state.parentSessionId)
+    }
 
     const paths = state.paths
     state.running = false
@@ -1012,7 +1047,7 @@ The E2E test validates that all components work together correctly. Focus on int
     // Save final state with completion info (don't clear - needed for stats display)
     await saveState()
 
-    lastStopReason = reason
+    instanceState().lastStopReason = reason
 
     Bus.publish(TaskModeEvent.OrchestratorStopped, {
       taskListPath: paths.taskListPath,
@@ -1020,11 +1055,11 @@ The E2E test validates that all components work together correctly. Focus on int
       reportSessionId,
     })
 
-    state = null
+    instanceState().current = null
   }
 
   export async function confirmPlan(): Promise<void> {
-    if (!state) {
+    if (!instanceState().current) {
       throw new Error("Orchestrator not started")
     }
 
@@ -1035,7 +1070,7 @@ The E2E test validates that all components work together correctly. Focus on int
   }
 
   export function isRunning(): boolean {
-    return state?.running ?? false
+    return instanceState().current?.running ?? false
   }
 
   export function getStatus(): {
@@ -1055,6 +1090,7 @@ The E2E test validates that all components work together correctly. Focus on int
       modifiedFiles: string[]
     }
   } {
+    const state = instanceState().current
     return {
       running: state?.running ?? false,
       activeTasks: state?.activeTasks.size ?? 0,
@@ -1064,7 +1100,7 @@ The E2E test validates that all components work together correctly. Focus on int
       completedAt: state?.completedAt,
       phase: state?.phase,
       phaseDetail: state?.phaseDetail,
-      stopReason: !state ? (lastStopReason ?? undefined) : undefined,
+      stopReason: !state ? (instanceState().lastStopReason ?? undefined) : undefined,
       stats: state
         ? {
             inputTokens: state.stats.inputTokens,
@@ -1077,6 +1113,7 @@ The E2E test validates that all components work together correctly. Focus on int
   }
 
   async function runLoop(): Promise<void> {
+    const state = instanceState().current
     if (!state) return
 
     const config = await Config.get()
@@ -1107,6 +1144,7 @@ The E2E test validates that all components work together correctly. Focus on int
     }
 
     const poll = async () => {
+      const state = instanceState().current
       if (!state?.running) return
 
       // Prevent overlapping poll calls (poll has stagger delays, so interval can fire while still running)
@@ -1133,6 +1171,17 @@ The E2E test validates that all components work together correctly. Focus on int
           inProgressCount: counts.inProgress,
           completedCount: counts.completed,
         })
+
+        // Update progress in WorkflowState
+        if (state.runId) {
+          WorkflowState.updateStatus(state.runId, {
+            progress: {
+              current: counts.completed,
+              total: counts.total,
+              label: "tasks",
+            },
+          })
+        }
 
         // Check if all done
         if (TaskList.isAllDone(taskList)) {
@@ -1246,7 +1295,7 @@ The E2E test validates that all components work together correctly. Focus on int
         }
 
         // Log waiting status if we didn't launch anything new
-        if (launchedThisPoll === 0 && state.activeTasks.size > 0) {
+        if (launchedThisPoll === 0 && state.activeTasks.size > 0 && state.parentSessionId) {
           const activeTaskIds = Array.from(state.activeTasks.keys())
           const pendingTasks = taskList.tasks.filter((t) => t.status === "todo" && !state!.activeTasks.has(t.id))
           const waitingOnDeps = pendingTasks.filter((t) => {
@@ -1288,6 +1337,7 @@ The E2E test validates that all components work together correctly. Focus on int
       } catch (err) {
         log.error("poll error", { error: err })
       } finally {
+        const state = instanceState().current
         if (state) {
           state.pollInProgress = false
         }
@@ -1304,6 +1354,7 @@ The E2E test validates that all components work together correctly. Focus on int
   }
 
   async function launchTask(task: TaskList.TaskEntry): Promise<void> {
+    const state = instanceState().current
     if (!state) return
 
     const taskFilePath = task.file
@@ -1334,6 +1385,7 @@ The E2E test validates that all components work together correctly. Focus on int
       taskFilePath,
       paths: state.paths,
       parentSessionId: state.parentSessionId,
+      disabledTools: Workflow.buildDisabledTools({ id: "task", recursive: false }),
     })
 
     state.activeTasks.set(task.id, { sessionId: "", promise })
@@ -1345,6 +1397,7 @@ The E2E test validates that all components work together correctly. Focus on int
     // Handle completion
     promise
       .then(async (result) => {
+        const state = instanceState().current
         if (state) {
           state.activeTasks.delete(task.id)
           state.lastStatusMessage = undefined // Clear so next status update shows new state
@@ -1369,6 +1422,7 @@ The E2E test validates that all components work together correctly. Focus on int
         }
       })
       .catch(async (err) => {
+        const state = instanceState().current
         if (state) {
           state.activeTasks.delete(task.id)
           state.lastStatusMessage = undefined // Clear so next status update shows new state
@@ -1389,6 +1443,7 @@ The E2E test validates that all components work together correctly. Focus on int
   }
 
   export async function detectOrphanedTasks(): Promise<TaskList.TaskEntry[]> {
+    const state = instanceState().current
     if (!state) return []
 
     const taskList = await TaskList.read(state.paths.taskListPath)
@@ -1412,6 +1467,7 @@ The E2E test validates that all components work together correctly. Focus on int
 
     log.info("recovering orphaned tasks", { count: orphaned.length })
 
+    const state = instanceState().current
     if (!state) return
 
     await TaskList.update(state.paths.taskListPath, state.paths.lockPath, (current) => {
@@ -1437,6 +1493,7 @@ The E2E test validates that all components work together correctly. Focus on int
     modifiedFiles: string[]
   } | null> {
     // First check runtime state
+    const state = instanceState().current
     if (state) {
       const durationMs = state.completedAt ? state.completedAt - state.startedAt : Date.now() - state.startedAt
       return {
@@ -1485,8 +1542,8 @@ The E2E test validates that all components work together correctly. Focus on int
     log.info("task folder archived", { from: taskDir, to: archivePath })
 
     // Clear orchestrator state file if it exists (it would have been moved)
-    if (state) {
-      state = null
+    if (instanceState().current) {
+      instanceState().current = null
     }
 
     return archivePath

@@ -131,7 +131,16 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const images = input.imageAttachments().slice()
     const mode = input.mode()
 
+    console.log("[DEBUG submit]", {
+      text: JSON.stringify(text),
+      parts: currentPrompt.length,
+      images: images.length,
+      comments: input.commentCount(),
+      working: input.working(),
+    })
+
     if (text.trim().length === 0 && images.length === 0 && input.commentCount() === 0) {
+      console.log("[DEBUG submit] early return: empty text, no images, no comments")
       if (input.working()) abort()
       return
     }
@@ -139,6 +148,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const currentModel = local.model.current()
     const currentAgent = local.agent.current()
     if (!currentModel || !currentAgent) {
+      console.log("[DEBUG submit] early return: no model or agent", { model: currentModel, agent: currentAgent })
       showToast({
         title: language.t("prompt.toast.modelAgentRequired.title"),
         description: language.t("prompt.toast.modelAgentRequired.description"),

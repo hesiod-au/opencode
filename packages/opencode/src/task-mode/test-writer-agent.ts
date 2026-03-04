@@ -1,5 +1,6 @@
 import { Log } from "../util/log"
 import { Session } from "../session"
+import { SessionStatus } from "../session/status"
 import { SessionPrompt } from "../session/prompt"
 import { Identifier } from "../id/id"
 import { Bus } from "../bus"
@@ -52,6 +53,7 @@ export namespace TestWriterAgent {
     paths: TaskList.Paths
     parentSessionId?: string
     planningConversation: string
+    disabledTools?: Record<string, false>
   }
 
   export interface TestWriterResult {
@@ -86,9 +88,13 @@ export namespace TestWriterAgent {
       title: "Test Writing Session",
     })
 
+    // Set session status to busy
+    SessionStatus.set(session.id, { type: "busy" })
+
     // Read all tasks
     const taskList = await TaskList.read(paths.taskListPath)
     if (!taskList || taskList.tasks.length === 0) {
+      SessionStatus.set(session.id, { type: "idle" })
       return {
         success: false,
         sessionId: session.id,
@@ -139,6 +145,7 @@ export namespace TestWriterAgent {
         },
         agent: agent.name,
         variant: "max",
+        tools: { question: false, ...options.disabledTools },
         parts: [{ type: "text", text: prompt }],
       })
 
@@ -240,6 +247,9 @@ export namespace TestWriterAgent {
         frameworkWarning,
       })
 
+      // Set session status to idle
+      SessionStatus.set(session.id, { type: "idle" })
+
       return {
         success: true,
         sessionId: session.id,
@@ -251,6 +261,9 @@ export namespace TestWriterAgent {
       log.error("test writing failed", { error: err })
 
       await logToParent(parentSessionId, `**Test writing failed:** ${err.message || String(err)}`)
+
+      // Set session status to idle
+      SessionStatus.set(session.id, { type: "idle" })
 
       return {
         success: false,

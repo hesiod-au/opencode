@@ -13,6 +13,7 @@ npm install -g agent-browser@0.6.0
 ```
 
 **Critical**: The `screenshot` command is broken in versions 0.7.x with error:
+
 ```
 Validation error: selector: Expected string, received null
 ```
@@ -49,11 +50,11 @@ agent-browser --session test snapshot -i
 
 ### Snapshot Types
 
-| Command | Output |
-|---------|--------|
-| `snapshot` | Full accessibility tree with all elements |
+| Command       | Output                                             |
+| ------------- | -------------------------------------------------- |
+| `snapshot`    | Full accessibility tree with all elements          |
 | `snapshot -i` | Interactive elements only (buttons, inputs, links) |
-| `snapshot -c` | Compact format |
+| `snapshot -c` | Compact format                                     |
 
 ## Common Pitfalls
 
@@ -65,15 +66,15 @@ agent-browser --session test snapshot -i
 // BAD: Ref may be stale
 const snapshot = await ctx.run("snapshot -i")
 // ... time passes, page updates ...
-await ctx.run("click @e5")  // May click wrong element or fail
+await ctx.run("click @e5") // May click wrong element or fail
 ```
 
 **Solution**: Get fresh snapshot immediately before interacting:
 
 ```typescript
 // GOOD: Fresh snapshot before each interaction
-await ctx.run("snapshot -i")  // Updates refs
-await ctx.run("click @e5")    // Refs are current
+await ctx.run("snapshot -i") // Updates refs
+await ctx.run("click @e5") // Refs are current
 ```
 
 ### 2. Command String Parsing
@@ -102,7 +103,7 @@ const proc = Bun.spawn(["agent-browser", "--session", session, "click", selector
 ```typescript
 // BAD: Passes even if task list doesn't exist
 const hasTable = snapshot.includes("ID") || snapshot.includes("No task list")
-if (hasTable) console.log("PASS")  // Always passes!
+if (hasTable) console.log("PASS") // Always passes!
 ```
 
 **Solution**: Strict assertions that fail when expected content is missing:
@@ -119,6 +120,7 @@ if (!snapshot.includes("Task ID") || !snapshot.includes("Status")) {
 **Problem**: Tests create real sessions/files in the project being tested, causing pollution and potentially triggering real actions.
 
 **Solution**:
+
 - Create a temporary directory for each test
 - Navigate to the temp directory before testing
 - Clean up after tests complete
@@ -191,6 +193,7 @@ async function waitForText(ctx, text, timeout = 10000) {
 ### Screenshot Location
 
 Screenshots are saved to `/tmp/e2e-screenshots/` by default. Include:
+
 - Test name in filename for traceability
 - Timestamp or test index for ordering
 - Sanitize filenames (remove special characters)
@@ -229,40 +232,46 @@ test("Feature X displays correctly", async (ctx) => {
 ## Debugging Tips
 
 ### View Full Snapshot
+
 ```bash
 agent-browser --session test snapshot
 ```
 
 ### View Interactive Elements Only
+
 ```bash
 agent-browser --session test snapshot -i
 ```
 
 ### Get HTML of Specific Element
+
 ```bash
 agent-browser --session test get html "body"
 ```
 
 ### Check Element Visibility
+
 ```bash
 agent-browser --session test is visible "#my-element"
 ```
 
 ### List Active Sessions
+
 ```bash
 agent-browser session list
 ```
 
 ### Close All Sessions
+
 ```bash
 agent-browser session list | xargs -I {} agent-browser --session {} close
 ```
 
 ## Known agent-browser Issues (v0.7.x)
 
-| Issue | Version | Status |
-|-------|---------|--------|
-| `screenshot` command fails with "selector: Expected string, received null" | 0.7.x | Use 0.6.0 |
+| Issue                                                                      | Version | Status    |
+| -------------------------------------------------------------------------- | ------- | --------- |
+| `screenshot` command fails with "selector: Expected string, received null" | 0.7.x   | Use 0.6.0 |
 
 ## Checklist for New Tests
 

@@ -1,3 +1,4 @@
+import z from "zod"
 import { Log } from "../util/log"
 import { Bus } from "../bus"
 import { Config } from "../config/config"
@@ -7,9 +8,11 @@ import { Agent } from "../agent/agent"
 import { Identifier } from "../id/id"
 import { Instance } from "../project/instance"
 import { WorkflowEvent } from "../workflow/events"
+import { WorkflowState } from "../workflow/state"
 import { PRReviewEvent } from "./events"
 import { GH } from "./gh"
-import type { Workflow } from "../workflow/workflow"
+import { Workflow } from "../workflow/workflow"
+import { WorkflowOrchestrator } from "../workflow/orchestrator"
 
 export namespace PRReviewWorkflow {
   const log = Log.create({ service: "pr-review" })
@@ -25,6 +28,7 @@ export namespace PRReviewWorkflow {
     | "completing"
 
   interface State {
+    runId?: string
     running: boolean
     phase?: Phase
     phaseDetail?: string
@@ -33,8 +37,10 @@ export namespace PRReviewWorkflow {
     completedAt?: number
     prNumber?: number
     cycleCount: number
+    recheckAttempts: number
     lastCommitSha?: string
     abortController: AbortController
+    seenCommentIds: Set<number>
     progressLog: Array<{ message: string; timestamp: number }>
     sessionIds: string[]
     stats: {
@@ -45,9 +51,28 @@ export namespace PRReviewWorkflow {
     }
   }
 
-  let state: State | null = null
+  const instanceState = Instance.state(
+    () => ({
+      current: null as State | null,
+    }),
+    async (data) => {
+      if (data.current?.running) {
+        data.current.abortController.abort()
+      }
+    },
+  )
+  type ReviewAction = "fix" | "ignore"
+  type AssessedComment = GH.ReviewComment & {
+    action: ReviewAction
+    reason: string
+  }
+  type InvestigatedFixResult = {
+    sessionId: string
+    appliedFix: boolean
+  }
 
   function setPhase(phase: Phase, detail?: string) {
+    const state = instanceState().current
     if (!state) return
     state.phase = phase
     state.phaseDetail = detail
@@ -57,39 +82,26 @@ export namespace PRReviewWorkflow {
       workflowId: "pr-review",
       phase,
       detail,
+      runId: state.runId,
     })
+
+    if (state.runId) {
+      WorkflowState.updateStatus(state.runId, { phase, phaseDetail: detail })
+    }
   }
 
   async function logToSession(text: string): Promise<void> {
-    if (!state?.orchestratorSessionId) return
-    try {
-      const agent = await Agent.get("build")
-      const model = agent?.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
-      const messageID = Identifier.ascending("message")
-      const partID = Identifier.ascending("part")
-      await Session.updateMessage({
-        id: messageID,
-        sessionID: state.orchestratorSessionId,
-        role: "user",
-        time: { created: Date.now() },
-        agent: "build",
-        model,
-      })
-      await Session.updatePart({
-        id: partID,
-        sessionID: state.orchestratorSessionId,
-        messageID,
-        type: "text",
-        text,
-        synthetic: true,
-      })
-    } catch (err) {
-      log.error("logToSession failed", { error: err })
+    const state = instanceState().current
+    if (!state?.orchestratorSessionId) {
+      log.error("logToSession called without orchestrator session")
+      return
     }
+    await WorkflowOrchestrator.logProgress(state.orchestratorSessionId, text)
   }
 
   function progress(message: string) {
     log.info("progress", { message })
+    const state = instanceState().current
     if (state) {
       state.progressLog.push({ message, timestamp: Date.now() })
       if (state.progressLog.length > 100) state.progressLog.shift()
@@ -97,6 +109,7 @@ export namespace PRReviewWorkflow {
     Bus.publish(WorkflowEvent.Progress, {
       workflowId: "pr-review",
       message,
+      runId: state?.runId,
     })
     logToSession(message).catch((err) => log.error("logToSession error", { error: err }))
   }
@@ -154,107 +167,331 @@ export namespace PRReviewWorkflow {
     }
   }
 
-  async function runFixAgent(comments: any[]): Promise<{ success: boolean; sessionId: string }> {
+  async function workingTreeStatus(): Promise<string> {
+    const proc = Bun.spawn(["git", "status", "--porcelain"], {
+      cwd: Instance.directory,
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const stdout = await new Response(proc.stdout).text()
+    await proc.exited
+    return stdout.trim()
+  }
+
+  function responseText(result: { parts: Array<{ type: string; text?: string }> }): string {
+    return result.parts
+      .filter((part) => part.type === "text")
+      .map((part) => (part as { type: "text"; text: string }).text)
+      .join("\n\n")
+      .trim()
+  }
+
+  function isLikelyNoAction(body: string): boolean {
+    const text = body.toLowerCase()
+    return [
+      "looks good",
+      "lgtm",
+      "approve",
+      "approved",
+      "no changes",
+      "nothing to do",
+      "nothing else",
+      "not needed",
+      "resolved",
+      "thanks",
+      "thank you",
+      "nit:",
+      "nitpick",
+      "ack",
+    ].some((phrase) => text.includes(phrase))
+  }
+
+  function parseAssessmentText(text: string): Array<{
+    id: number
+    action: ReviewAction
+    reason: string
+  }> {
+    const decode = (raw: unknown) => {
+      if (typeof raw !== "object" || raw === null) return []
+      const list = Array.isArray(raw)
+        ? raw
+        : Array.isArray((raw as { assessments?: unknown }).assessments)
+          ? (raw as { assessments: unknown }).assessments
+          : []
+      if (!Array.isArray(list)) return []
+      return list
+        .map((entry) => {
+          if (typeof entry !== "object" || entry === null) return undefined
+          const item = entry as {
+            id?: unknown
+            action?: unknown
+            reason?: unknown
+          }
+          if (typeof item.id !== "number") return undefined
+          const action = (
+            typeof item.action === "string" && (item.action === "fix" || item.action === "ignore") ? item.action : "fix"
+          ) as ReviewAction
+
+          return {
+            id: item.id,
+            action,
+            reason: typeof item.reason === "string" ? item.reason : "Automated triage",
+          }
+        })
+        .filter((item): item is { id: number; action: ReviewAction; reason: string } => item !== undefined)
+    }
+
+    try {
+      return decode(JSON.parse(text))
+    } catch {
+      const match = text.match(/\{[\s\S]*\}/)
+      if (!match?.[0]) return []
+      try {
+        return decode(JSON.parse(match[0]))
+      } catch {
+        return []
+      }
+    }
+  }
+
+  async function assessComments(comments: GH.ReviewComment[]): Promise<AssessedComment[]> {
+    if (comments.length === 0) return []
+
+    const state = instanceState().current
+
+    const fallback = comments.map((comment) => {
+      const isIgnore = isLikelyNoAction(comment.body)
+      const reason = isIgnore ? "Likely non-actionable review note" : "Automated default"
+      return {
+        ...comment,
+        action: isIgnore ? "ignore" : "fix",
+        reason,
+      } as AssessedComment
+    })
+    if (!state?.orchestratorSessionId) return fallback
+
+    const agent = await Agent.get("build")
+    if (!agent) return fallback
+
+    const model = agent.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
+    const payload = comments
+      .map((comment) => ({
+        id: comment.id,
+        user: comment.user.login,
+        path: comment.path,
+        line: comment.line,
+        body: comment.body,
+      }))
+      .map((comment) => JSON.stringify(comment))
+      .join("\n")
+
+    const prompt = `# PR Review Comment Triage
+
+Classify each review comment as one of:
+- fix: actionable and should be investigated before deciding how to resolve
+- ignore: non-actionable (ack/nice/thank-you/looks good)
+
+For each item, output strict JSON with this shape:
+{"assessments":[{"id":123,"action":"fix|ignore","reason":"short reason"}]}
+
+Only output JSON, no markdown.
+
+COMMENTS:
+${payload}
+`
+
+    const messageID = Identifier.ascending("message")
+    const result = await SessionPrompt.prompt({
+      messageID,
+      sessionID: state.orchestratorSessionId,
+      model: { modelID: model.modelID, providerID: model.providerID },
+      agent: agent.name,
+      variant: "max",
+      tools: { question: false, workflow_task: true, ...Workflow.buildDisabledTools(definition) },
+      parts: [{ type: "text", text: prompt }],
+    })
+
+    const parsed = parseAssessmentText(responseText(result))
+    if (parsed.length === 0) return fallback
+    const byId = new Map(parsed.map((item) => [item.id, item]))
+
+    return comments.map((comment) => {
+      const item = byId.get(comment.id)
+      if (!item) {
+        return {
+          ...comment,
+          action: "fix",
+          reason: "Classification not returned",
+        } as AssessedComment
+      }
+      return {
+        ...comment,
+        action: item.action,
+        reason: item.reason,
+      }
+    })
+  }
+
+  async function runFixAgent(comment: AssessedComment): Promise<InvestigatedFixResult> {
+    const state = instanceState().current
     const fixSession = await Session.create({
       parentID: state?.orchestratorSessionId,
       title: `PR Review Fix — Cycle ${state?.cycleCount ?? 0}`,
     })
+    if (state) state.sessionIds.push(fixSession.id)
 
-    const commentText = comments
-      .map((c) => {
-        const location = c.path ? `File: ${c.path}${c.line ? `:${c.line}` : ""}` : "General comment"
-        return `### ${c.user.login} (${location})\n${c.body}`
-      })
-      .join("\n\n---\n\n")
+    const location = comment.path ? `File: ${comment.path}${comment.line ? `:${comment.line}` : ""}` : "General comment"
+    const commentText = `### ${comment.user.login} (${location})\n${comment.body}`
+    const investigatePrompt = `# PR Review Feedback — Root Cause Investigation and Fix
 
-    const prompt = `# PR Review Feedback — Fix Required
-
-The following review comments were left on the PR. Address each one:
-
+Issue:
 ${commentText}
 
-## Instructions
+Investigate the root cause deeply in surrounding code.
+Then decide the best action:
+- If this is local/single-scope and safe, fix it directly in this session.
+- If this is cross-file, architectural, or wide-ranging, escalate and stop local edits.
 
-1. Read and understand each review comment
-2. Make the necessary code changes to address the feedback
-3. Ensure all changes are correct and complete
-4. Do NOT break existing functionality
-5. Keep changes minimal and focused on the review feedback
+Before continuing, if escalation is required, invoke:
+tool: workflow_task
+userPrompt: Original issue: ${commentText}
+Investigation outcome: {brief finding + category + rationale}
+
+If the issue is local, continue with a minimal code fix in this same message.
 `
 
     const agent = await Agent.get("build")
     if (!agent) throw new Error("Build agent not found")
 
     const model = agent.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
-    const messageID = Identifier.ascending("message")
-
-    await SessionPrompt.prompt({
-      messageID,
+    const preFixState = await workingTreeStatus()
+    const assessResult = await SessionPrompt.prompt({
+      messageID: Identifier.ascending("message"),
       sessionID: fixSession.id,
       model: { modelID: model.modelID, providerID: model.providerID },
       agent: agent.name,
       variant: "max",
-      tools: { question: false },
-      parts: [{ type: "text", text: prompt }],
+      tools: { question: false, workflow_task: true, ...Workflow.buildDisabledTools(definition) },
+      parts: [{ type: "text", text: investigatePrompt }],
     })
+    const calledTaskMode = assessResult.parts.some(
+      (part) => part.type === "tool" && (part as { tool?: string }).tool === "workflow_task",
+    )
+    if (!calledTaskMode) {
+      const postFixState = await workingTreeStatus()
+      if (preFixState === postFixState) {
+        log.warn("root cause investigation completed without local changes or escalation", { sessionId: fixSession.id })
+        progress("Root cause investigation did not produce a local patch; review may be needed.")
+      }
 
-    if (state) state.sessionIds.push(fixSession.id)
-    return { success: true, sessionId: fixSession.id }
+      return { sessionId: fixSession.id, appliedFix: preFixState !== postFixState }
+    }
+
+    const postFixState = await workingTreeStatus()
+    return { sessionId: fixSession.id, appliedFix: preFixState !== postFixState }
   }
 
   export const definition: Workflow.Definition<Phase> = {
     id: "pr-review",
     name: "PR Review",
     activationMode: "start",
+    toolInvocable: {
+      description: [
+        "Run an automated PR review feedback loop that addresses reviewer comments on a GitHub pull request.",
+        "",
+        "Use this tool when:",
+        "- The user asks to address or fix PR review feedback",
+        "- The user wants to automate the review-fix-commit cycle for a pull request",
+        "- There are outstanding review comments on a PR that need to be resolved",
+        "",
+        "The workflow runs in cycles (up to 20 by default):",
+        "1. Fetch review comments since the last commit",
+        "2. Run an agent to make code changes addressing the feedback",
+        "3. Run tests (auto-detected) and fix failures if needed",
+        "4. Commit and push the changes",
+        "5. Post a review request comment, then wait for new comments",
+        "6. Repeat until no new comments remain or max cycles reached",
+        "",
+        "If no prNumber is provided, the workflow auto-detects the PR for the current branch.",
+        "The tool is long-running. It returns the final status when all cycles complete or an error occurs.",
+      ].join("\n"),
+      parameters: z.object({
+        prNumber: z.number().optional().describe("PR number to review. Auto-detects from current branch if omitted."),
+      }),
+    },
 
     async start(options) {
-      if (state?.running) {
+      if (instanceState().current?.running) {
         log.warn("pr-review workflow already running")
         return
       }
 
+      const runId = options.runId ?? WorkflowState.startRun("pr-review")
+
       const config = await Config.get()
       const prConfig = config.prReview
 
-      // Create an orchestrator session to track progress
-      const orchestratorSession = await Session.create({
-        title: "PR Review",
-      })
+      // Initialize orchestrator session (use existing or create new)
+      const orchestratorSessionId = await WorkflowOrchestrator.initializeOrchestrator(
+        "PR Review",
+        options.parentSessionId,
+      )
 
-      state = {
+      instanceState().current = {
+        runId,
         running: true,
-        orchestratorSessionId: orchestratorSession.id,
+        orchestratorSessionId,
         startedAt: Date.now(),
         cycleCount: 0,
+        recheckAttempts: 0,
         abortController: new AbortController(),
+        seenCommentIds: new Set(),
         progressLog: [],
         sessionIds: [],
         stats: { inputTokens: 0, outputTokens: 0, cost: 0, modifiedFiles: [] },
       }
 
-      Bus.publish(WorkflowEvent.Started, {
-        workflowId: "pr-review",
-        parentSessionId: orchestratorSession.id,
+      WorkflowState.updateStatus(runId, {
+        running: true,
+        parentSessionId: orchestratorSessionId,
+        startedAt: Date.now(),
       })
 
-      // Resolve PR number
-      const prNumber = prConfig?.prNumber ?? (await GH.getCurrentBranchPR())
+      Bus.publish(WorkflowEvent.Started, {
+        workflowId: "pr-review",
+        parentSessionId: orchestratorSessionId,
+        runId,
+      })
+
+      // Resolve PR number from tool args, config, or auto-detect
+      let toolPrNumber: number | undefined
+      if (options.userPrompt) {
+        try {
+          const parsed = JSON.parse(options.userPrompt)
+          toolPrNumber = parsed?.prNumber
+        } catch {}
+      }
+      const prNumber = toolPrNumber ?? prConfig?.prNumber ?? (await GH.getCurrentBranchPR())
       if (!prNumber) {
         progress("No PR found for current branch. Use --pr <number> or prReview.prNumber config.")
         await definition.stop("error")
         return
       }
 
-      state.prNumber = prNumber
+      instanceState().current!.prNumber = prNumber
       progress(`Starting PR review cycle for PR #${prNumber}`)
+
+      // Set orchestrator to busy
+      WorkflowOrchestrator.setBusy(orchestratorSessionId)
 
       // Run the main loop
       const maxCycles = prConfig?.maxCycles ?? 20
       const pollMinutes = prConfig?.pollIntervalMinutes ?? 2
+      const maxRecheckAttempts = prConfig?.maxRecheckAttempts ?? 5
       const reviewComment = prConfig?.reviewRequestComment ?? "@codex review"
 
       try {
-        await reviewLoop({ prNumber, maxCycles, pollMinutes, reviewComment })
+        await reviewLoop({ prNumber, maxCycles, pollMinutes, reviewComment, maxRecheckAttempts })
       } catch (err: any) {
         log.error("pr-review loop error", { error: err })
         progress(`Error: ${err.message}`)
@@ -263,22 +500,39 @@ ${commentText}
     },
 
     async stop(reason) {
+      const state = instanceState().current
       if (!state) return
       log.info("stopping pr-review", { reason })
 
+      const runId = state.runId
       state.running = false
       state.completedAt = Date.now()
       state.abortController.abort()
 
+      if (state.orchestratorSessionId) {
+        WorkflowOrchestrator.setIdle(state.orchestratorSessionId)
+      }
+
+      if (runId) {
+        WorkflowState.endRun(runId, reason)
+        WorkflowState.updateStatus(runId, {
+          running: false,
+          completedAt: state.completedAt,
+        })
+      }
+
       Bus.publish(WorkflowEvent.Stopped, {
         workflowId: "pr-review",
         reason,
+        runId,
       })
 
-      state = null
+      instanceState().current = null
     },
 
     getStatus() {
+      const state = instanceState().current
+      const activeRun = WorkflowState.getActiveRun("pr-review")
       return {
         running: state?.running ?? false,
         phase: state?.phase,
@@ -286,6 +540,8 @@ ${commentText}
         parentSessionId: state?.orchestratorSessionId,
         startedAt: state?.startedAt,
         completedAt: state?.completedAt,
+        runId: state?.runId ?? activeRun?.runId,
+        progress: activeRun?.status.progress,
         stats: state?.stats,
         extra: {
           prNumber: state?.prNumber,
@@ -299,12 +555,19 @@ ${commentText}
     },
 
     isRunning() {
-      return state?.running ?? false
+      return instanceState().current?.running ?? false
     },
   }
 
-  async function reviewLoop(opts: { prNumber: number; maxCycles: number; pollMinutes: number; reviewComment: string }) {
-    if (!state) return
+  async function reviewLoop(opts: {
+    prNumber: number
+    maxCycles: number
+    pollMinutes: number
+    reviewComment: string
+    maxRecheckAttempts: number
+  }) {
+    const state = instanceState().current
+    if (!state || !state.orchestratorSessionId) return
 
     // Get initial HEAD commit
     state.lastCommitSha = await GH.getLastCommitSha()
@@ -318,150 +581,190 @@ ${commentText}
       progress("No test command detected — skipping test phase")
     }
 
-    for (let cycle = 1; cycle <= opts.maxCycles; cycle++) {
+    while (state?.running) {
+      const cycle = state.cycleCount + 1
       if (!state?.running) return
-
-      state.cycleCount = cycle
 
       // 1. Fetch comments since last commit
       setPhase("fetching-comments", `Cycle ${cycle}`)
       progress(`Cycle ${cycle}: Fetching review comments since ${state.lastCommitSha?.slice(0, 7)}...`)
 
       const comments = await GH.getCommentsSinceCommit(opts.prNumber, state.lastCommitSha!)
+      const unseen = comments.filter((comment) => !state?.seenCommentIds.has(comment.id))
+      unseen.forEach((comment) => state?.seenCommentIds.add(comment.id))
+      const assessed = await assessComments(unseen)
+      const actionable = assessed.filter((comment) => comment.action === "fix")
 
-      if (comments.length === 0) {
-        if (cycle === 1) {
-          progress("No review comments found. Nothing to do.")
+      if (actionable.length === 0) {
+        state.recheckAttempts += 1
+
+        if (state.recheckAttempts >= opts.maxRecheckAttempts) {
+          setPhase("completing")
+          progress("No actionable review comments after re-check attempts. All feedback addressed.")
           Bus.publish(PRReviewEvent.NoNewComments, {})
           await definition.stop("completed")
           return
         }
 
-        setPhase("completing")
-        progress("No new review comments. All feedback addressed!")
-        Bus.publish(PRReviewEvent.NoNewComments, {})
-        await definition.stop("completed")
-        return
-      }
-
-      progress(`Found ${comments.length} review comment(s)`)
-      Bus.publish(PRReviewEvent.CycleStarted, {
-        cycleNumber: cycle,
-        commentCount: comments.length,
-      })
-
-      // 2. Run fix agent
-      setPhase("fixing", `${comments.length} comments`)
-      progress(`Running agent to address ${comments.length} comment(s)...`)
-
-      const fixResult = await runFixAgent(comments).catch((err) => {
-        log.error("fix agent failed", { error: err })
-        return { success: false, sessionId: "" }
-      })
-
-      if (!fixResult.success) {
-        progress("Fix agent failed. Stopping.")
-        await definition.stop("error")
-        return
-      }
-
-      // 3. Run tests (if test command available)
-      if (testCommand && state.running) {
-        setPhase("testing")
-        progress("Running tests...")
-
-        const maxTestRetries = 5
-        let testsPassed = false
-
-        for (let attempt = 1; attempt <= maxTestRetries; attempt++) {
-          const testResult = await runTests(testCommand)
-          if (testResult.success) {
-            progress(`Tests passed (attempt ${attempt})`)
-            testsPassed = true
-            break
-          }
-
-          if (attempt < maxTestRetries) {
-            progress(`Tests failed (attempt ${attempt}/${maxTestRetries}), running fix agent...`)
-            // Feed test output to the fix agent
-            const testFixSession = await Session.create({
-              parentID: state.orchestratorSessionId,
-              title: `Test Fix — Cycle ${cycle}, Attempt ${attempt}`,
-            })
-
-            const agent = await Agent.get("build")
-            if (!agent) break
-
-            const model = agent.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
-            await SessionPrompt.prompt({
-              messageID: Identifier.ascending("message"),
-              sessionID: testFixSession.id,
-              model: { modelID: model.modelID, providerID: model.providerID },
-              agent: agent.name,
-              variant: "max",
-              tools: { question: false },
-              parts: [
-                {
-                  type: "text",
-                  text: `# Test Failure — Fix Required\n\nTest command: \`${testCommand}\`\n\nOutput:\n\`\`\`\n${testResult.output.slice(0, 8000)}\n\`\`\`\n\nFix the failing tests without breaking other functionality.`,
-                },
-              ],
-            })
-          } else {
-            progress(`Tests failed after ${maxTestRetries} attempts. Continuing with commit anyway.`)
-          }
-        }
-      }
-
-      if (!state?.running) return
-
-      // 4. Commit and push
-      setPhase("committing")
-      progress("Committing and pushing changes...")
-
-      const newSha = await GH.addAndCommitAndPush("Address PR review feedback").catch((err) => {
-        log.error("commit/push failed", { error: err })
-        return undefined
-      })
-
-      if (!newSha) {
-        progress("Failed to commit/push. Stopping.")
-        await definition.stop("error")
-        return
-      }
-
-      state.lastCommitSha = newSha
-      Bus.publish(PRReviewEvent.CycleCompleted, {
-        cycleNumber: cycle,
-        commitSha: newSha,
-      })
-
-      progress(`Pushed commit ${newSha.slice(0, 7)}`)
-
-      // 5. Request review
-      setPhase("requesting-review")
-      progress(`Posting review request comment...`)
-
-      await GH.postComment(opts.prNumber, opts.reviewComment).catch((err) => {
-        log.warn("failed to post review comment", { error: err })
-      })
-
-      // 6. Wait for next review
-      if (cycle < opts.maxCycles) {
         setPhase("waiting", `${opts.pollMinutes} minutes`)
-        progress(`Waiting ${opts.pollMinutes} minutes for new review comments...`)
+        progress(`No new actionable comments. Waiting ${opts.pollMinutes} minutes for next review...`)
+        WorkflowOrchestrator.setWaiting(state.orchestratorSessionId!)
 
         const aborted = await sleep(opts.pollMinutes * 60 * 1000, state.abortController.signal)
         if (aborted || !state?.running) return
 
-        // 7. Check for new comments
         setPhase("checking-comments")
         progress("Checking for new review comments...")
+        WorkflowOrchestrator.setBusy(state.orchestratorSessionId!)
+        continue
       }
-    }
 
-    progress(`Reached max cycles (${opts.maxCycles}). Stopping.`)
-    await definition.stop("completed")
+      if (cycle > opts.maxCycles) {
+        progress(`Reached max cycles (${opts.maxCycles}). Stopping.`)
+        await definition.stop("completed")
+        return
+      }
+
+      state.recheckAttempts = 0
+      state.cycleCount = cycle
+
+      let localFixCount = 0
+      let taskModeCount = 0
+
+      for (const comment of actionable) {
+        const result = await runFixAgent(comment).catch((err) => {
+          log.error("fix agent failed", { error: err, commentId: comment.id })
+          return { sessionId: "", appliedFix: false }
+        })
+
+        if (result.appliedFix) {
+          localFixCount += 1
+        } else {
+          taskModeCount += 1
+        }
+      }
+
+      if (localFixCount === 0) {
+        Bus.publish(PRReviewEvent.CycleStarted, {
+          cycleNumber: cycle,
+          commentCount: actionable.length,
+        })
+        progress(
+          `Found ${actionable.length} actionable comment(s); no local fixes applied (${taskModeCount} handed to task mode).`,
+        )
+        // Skip tests and commit when no local changes were made.
+      } else {
+        progress(`Found ${actionable.length} actionable comment(s)`)
+        Bus.publish(PRReviewEvent.CycleStarted, {
+          cycleNumber: cycle,
+          commentCount: localFixCount,
+        })
+        const phase = `${localFixCount} comments`
+        // 2. Run fix agent per actionable comment
+        setPhase("fixing", phase)
+        progress(`Running agents to address ${phase}...`)
+
+        // 3. Run tests (if test command available)
+        if (testCommand && state.running) {
+          setPhase("testing")
+          progress("Running tests...")
+
+          const maxTestRetries = 5
+          let testsPassed = false
+
+          for (let attempt = 1; attempt <= maxTestRetries; attempt++) {
+            const testResult = await runTests(testCommand)
+            if (testResult.success) {
+              progress(`Tests passed (attempt ${attempt})`)
+              testsPassed = true
+              break
+            }
+
+            if (attempt < maxTestRetries) {
+              progress(`Tests failed (attempt ${attempt}/${maxTestRetries}), running fix agent...`)
+              // Feed test output to the fix agent
+              const testFixSession = await Session.create({
+                parentID: state.orchestratorSessionId,
+                title: `Test Fix — Cycle ${cycle}, Attempt ${attempt}`,
+              })
+
+              const agent = await Agent.get("build")
+              if (!agent) break
+
+              const model = agent.model ?? { providerID: "openai", modelID: "gpt-5.2-codex" }
+              await SessionPrompt.prompt({
+                messageID: Identifier.ascending("message"),
+                sessionID: testFixSession.id,
+                model: { modelID: model.modelID, providerID: model.providerID },
+                agent: agent.name,
+                variant: "max",
+                tools: { question: false, workflow_task: true, ...Workflow.buildDisabledTools(definition) },
+                parts: [
+                  {
+                    type: "text",
+                    text: `# Test Failure — Fix Required\n\nTest command: \`${testCommand}\`\n\nOutput:\n\`\`\`\n${testResult.output.slice(0, 8000)}\n\`\`\`\n\nFix the failing tests without breaking other functionality.`,
+                  },
+                ],
+              })
+            } else {
+              progress(`Tests failed after ${maxTestRetries} attempts. Continuing with commit anyway.`)
+            }
+          }
+
+          if (!testsPassed && !state.running) return
+        }
+
+        // 4. Commit and push
+        setPhase("committing")
+        progress("Committing and pushing changes...")
+
+        const newSha = await GH.addAndCommitAndPush("Address PR review feedback").catch((err) => {
+          log.error("commit/push failed", { error: err })
+          return undefined
+        })
+
+        if (!newSha) {
+          progress("Failed to commit/push. Stopping.")
+          await definition.stop("error")
+          return
+        }
+
+        state.lastCommitSha = newSha
+        Bus.publish(PRReviewEvent.CycleCompleted, {
+          cycleNumber: cycle,
+          commitSha: newSha,
+        })
+
+        progress(`Pushed commit ${newSha.slice(0, 7)}`)
+
+        // 5. Request review
+        setPhase("requesting-review")
+        progress(`Posting review request comment...`)
+
+        await GH.postComment(opts.prNumber, opts.reviewComment).catch((err) => {
+          log.warn("failed to post review comment", { error: err })
+        })
+      }
+
+      if (cycle >= opts.maxCycles) {
+        progress(`Reached max cycles (${opts.maxCycles}). Stopping.`)
+        await definition.stop("completed")
+        return
+      }
+
+      // 6. Wait for next review
+      setPhase("waiting", `${opts.pollMinutes} minutes`)
+      progress(`Waiting ${opts.pollMinutes} minutes for new review comments...`)
+      WorkflowOrchestrator.setWaiting(state.orchestratorSessionId!)
+
+      const aborted = await sleep(opts.pollMinutes * 60 * 1000, state.abortController.signal)
+      if (aborted || !state?.running) return
+
+      // 7. Check for new comments
+      setPhase("checking-comments")
+      progress("Checking for new review comments...")
+      WorkflowOrchestrator.setBusy(state.orchestratorSessionId!)
+    }
   }
 
   function sleep(ms: number, signal: AbortSignal): Promise<boolean> {

@@ -98,6 +98,7 @@ export namespace Agent {
           PermissionNext.fromConfig({
             question: "allow",
             plan_exit: "allow",
+            "workflow_*": "deny",
             external_directory: {
               [path.join(Global.Path.data, "plans", "*")]: "allow",
             },

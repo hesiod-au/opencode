@@ -1,5 +1,6 @@
 import { Log } from "../util/log"
 import { Session } from "../session"
+import { SessionStatus } from "../session/status"
 import { SessionPrompt } from "../session/prompt"
 import { MessageV2 } from "../session/message-v2"
 import { Identifier } from "../id/id"
@@ -303,6 +304,7 @@ ${guardrails}
     parentSessionId?: string
     agent?: string
     model?: { providerID: string; modelID: string }
+    disabledTools?: Record<string, false>
   }
 
   export interface TaskAgentResult {
@@ -328,6 +330,9 @@ ${guardrails}
       parentID: parentSessionId,
       title: `Task ${taskId}: ${taskTitle}`,
     })
+
+    // Set session status to busy
+    SessionStatus.set(session.id, { type: "busy" })
 
     // Claim the task (update status to in-progress)
     try {
@@ -413,8 +418,8 @@ ${guardrails}
             providerID: model.providerID,
           },
           agent: agent.name,
-          // Disable question tool - sub-tasks should work autonomously without asking the user
-          tools: { question: false },
+          // Disable question tool and workflow tools - sub-tasks should work autonomously
+          tools: { question: false, ...options.disabledTools },
           parts: [{ type: "text", text: prompt }],
         })
 
@@ -550,7 +555,7 @@ ${guardrails}
                   providerID: model.providerID,
                 },
                 agent: agent.name,
-                tools: { question: false },
+                tools: { question: false, ...options.disabledTools },
                 parts: [{ type: "text", text: fixPrompt }],
               })
             }
@@ -630,6 +635,9 @@ ${guardrails}
 
       log.info("task completed", { taskId, sessionId: session.id, stats })
 
+      // Set session status to idle
+      SessionStatus.set(session.id, { type: "idle" })
+
       return {
         success: true,
         sessionId: session.id,
@@ -681,6 +689,9 @@ ${guardrails}
         sessionId: session.id,
         error: err.message || String(err),
       })
+
+      // Set session status to idle
+      SessionStatus.set(session.id, { type: "idle" })
 
       return {
         success: false,

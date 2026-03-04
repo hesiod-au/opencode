@@ -1,5 +1,6 @@
 import { Log } from "../util/log"
 import { Session } from "../session"
+import { SessionStatus } from "../session/status"
 import { SessionPrompt } from "../session/prompt"
 import { Identifier } from "../id/id"
 import { Bus } from "../bus"
@@ -55,6 +56,7 @@ export namespace PlanningAgent {
     parentSessionId?: string
     context?: string
     userPrompt?: string
+    disabledTools?: Record<string, false>
   }
 
   export interface PlanningResult {
@@ -94,6 +96,7 @@ export namespace PlanningAgent {
             model: { modelID: model.modelID, providerID: model.providerID },
             agent: agent.name,
             variant: "max",
+            tools: { question: false, ...options.disabledTools },
             parts: [{ type: "text", text: analysisPrompt }],
           })
           return extractResponseText(result)
@@ -165,16 +168,14 @@ export namespace PlanningAgent {
           model: { modelID: model.modelID, providerID: model.providerID },
           agent: agent.name,
           variant: "max",
+          tools: { question: false, ...options.disabledTools },
           parts: [{ type: "text", text: assessmentPrompt }],
         })
         finalPlanText = extractResponseText(assessResult)
         await logToParent(parentSessionId, "**Planning:** assessment complete, synthesized task table ready")
       } catch (err: any) {
         log.warn("assessment failed, falling back to available analysis", { error: err })
-        await logToParent(
-          parentSessionId,
-          `**Planning:** assessment failed (${err.message}), using available analysis`,
-        )
+        await logToParent(parentSessionId, `**Planning:** assessment failed (${err.message}), using available analysis`)
         finalPlanText = plan1
       }
 
@@ -197,12 +198,17 @@ export namespace PlanningAgent {
         userPrompt,
         agent,
         model,
+        disabledTools: options.disabledTools,
       })
 
       return result
     } catch (err: any) {
       log.error("planning failed", { error: err })
       await logToParent(parentSessionId, `**Planning failed:** ${err.message || String(err)}`)
+
+      // Set session status to idle
+      SessionStatus.set(sessionId, { type: "idle" })
+
       return { success: false, sessionId, taskCount: 0, error: err.message || String(err) }
     }
   }
@@ -222,6 +228,10 @@ export namespace PlanningAgent {
       ]
     })
     log.info("planning agent created session", { sessionId: session.id, parentId: parentSessionId })
+
+    // Set session status to busy
+    SessionStatus.set(session.id, { type: "busy" })
+
     return session.id
   }
 
@@ -306,6 +316,9 @@ export namespace PlanningAgent {
       `**Planning completed** ✓\n\nGenerated ${plan.tasks.length} tasks:\n\n${taskSummary}`,
     )
 
+    // Set session status to idle
+    SessionStatus.set(sessionId, { type: "idle" })
+
     return { success: true, sessionId, taskCount: plan.tasks.length }
   }
 
@@ -320,6 +333,7 @@ export namespace PlanningAgent {
     userPrompt?: string
     agent: { name: string }
     model: { providerID: string; modelID: string }
+    disabledTools?: Record<string, false>
   }): Promise<void> {
     const {
       plan,
@@ -351,6 +365,7 @@ export namespace PlanningAgent {
         model: { modelID: model.modelID, providerID: model.providerID },
         agent: agent.name,
         variant: "max",
+        tools: { question: false, ...opts.disabledTools },
         parts: [{ type: "text", text: taskWritingPrompt }],
       })
 
@@ -384,6 +399,7 @@ export namespace PlanningAgent {
           model: { modelID: model.modelID, providerID: model.providerID },
           agent: agent.name,
           variant: "max",
+          tools: { question: false, ...opts.disabledTools },
           parts: [{ type: "text", text: continuationPrompt }],
         })
 

@@ -99,6 +99,7 @@ export default defineConfig({
             "rules",
             "agents",
             "models",
+            "workflows",
             "themes",
             "keybinds",
             "commands",
