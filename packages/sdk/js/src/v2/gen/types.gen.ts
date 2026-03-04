@@ -1127,6 +1127,78 @@ export type EventTestConfigConfigWritten = {
   }
 }
 
+export type EventTestfixOrchestratorStarted = {
+  type: "testfix.orchestrator.started"
+  properties: {
+    orchestratorSessionId: string
+  }
+}
+
+export type EventTestfixOrchestratorStopped = {
+  type: "testfix.orchestrator.stopped"
+  properties: {
+    reason: "completed" | "error" | "manual"
+    reportSessionId?: string
+  }
+}
+
+export type EventTestfixGroupStarted = {
+  type: "testfix.group.started"
+  properties: {
+    type: string
+    sessionId: string
+  }
+}
+
+export type EventTestfixGroupCompleted = {
+  type: "testfix.group.completed"
+  properties: {
+    type: string
+    sessionId: string
+    fileCount: number
+    passingCount: number
+    failingCount: number
+    erroringCount: number
+    invalidCount: number
+  }
+}
+
+export type EventTestfixFixagentStarted = {
+  type: "testfix.fixagent.started"
+  properties: {
+    type: string
+    file: string
+    sessionId: string
+  }
+}
+
+export type EventTestfixFixagentCompleted = {
+  type: "testfix.fixagent.completed"
+  properties: {
+    type: string
+    file: string
+    sessionId: string
+    status: "passing" | "failing" | "erroring" | "invalid"
+    retries: number
+  }
+}
+
+export type EventTestfixRegressionStarted = {
+  type: "testfix.regression.started"
+  properties: {
+    type: string
+    cycle: number
+  }
+}
+
+export type EventTestfixPhaseChanged = {
+  type: "testfix.phase_changed"
+  properties: {
+    phase: string
+    detail?: string
+  }
+}
+
 export type Event =
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
@@ -1194,6 +1266,14 @@ export type Event =
   | EventPrReviewNoNewComments
   | EventTestConfigAnalysisComplete
   | EventTestConfigConfigWritten
+  | EventTestfixOrchestratorStarted
+  | EventTestfixOrchestratorStopped
+  | EventTestfixGroupStarted
+  | EventTestfixGroupCompleted
+  | EventTestfixFixagentStarted
+  | EventTestfixFixagentCompleted
+  | EventTestfixRegressionStarted
+  | EventTestfixPhaseChanged
 
 export type GlobalEvent = {
   directory: string
@@ -2188,6 +2268,27 @@ export type Config = {
      */
     taskPromptGuardrails?: string
   }
+  /**
+   * Test fix workflow configuration
+   */
+  testFix?: {
+    /**
+     * Max concurrent fix agents across all groups (default: 10)
+     */
+    maxConcurrentAgents?: number
+    /**
+     * Max test/fix iterations per failing file (default: 5)
+     */
+    maxFixRetries?: number
+    /**
+     * Max full suite regression re-runs per group (default: 3)
+     */
+    maxGroupRetries?: number
+    /**
+     * Seconds between launching fix agents (default: 3)
+     */
+    staggerSeconds?: number
+  }
   experimental?: {
     disable_paste_summary?: boolean
     /**
@@ -2546,6 +2647,37 @@ export type WorkflowStatus = {
   extra?: {
     [key: string]: unknown
   }
+}
+
+export type WorkflowRun = {
+  runId: string
+  workflowId: string
+  projectID: string
+  directory: string
+  source: "tool" | "cli" | "api" | "gui" | "unknown"
+  parentSessionId?: string
+  startedAt: number
+  completedAt?: number
+  running: boolean
+  status?: WorkflowStatus
+  stats?: {
+    inputTokens: number
+    outputTokens: number
+    cost: number
+    modifiedFiles: Array<string>
+  }
+  extra?: {
+    [key: string]: unknown
+  }
+}
+
+export type WorkflowSessionLink = {
+  sessionId: string
+  runId: string
+  workflowId: string
+  role: "orchestrator" | "child" | "fix" | "group" | "report" | "task" | "other"
+  parentSessionId?: string
+  createdAt: number
 }
 
 export type Path = {
@@ -5777,6 +5909,130 @@ export type WorkflowConfirmResponses = {
 }
 
 export type WorkflowConfirmResponse = WorkflowConfirmResponses[keyof WorkflowConfirmResponses]
+
+export type WorkflowRunListData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Filter runs by project directory
+     */
+    directory?: string
+    /**
+     * Filter runs by workflow ID
+     */
+    workflowId?: string
+    /**
+     * Filter runs by running state
+     */
+    running?: boolean
+    /**
+     * Maximum number of runs to return
+     */
+    limit?: number
+  }
+  url: "/workflow/run/list"
+}
+
+export type WorkflowRunListResponses = {
+  /**
+   * List of workflow runs
+   */
+  200: Array<WorkflowRun>
+}
+
+export type WorkflowRunListResponse = WorkflowRunListResponses[keyof WorkflowRunListResponses]
+
+export type WorkflowRunGetData = {
+  body?: never
+  path: {
+    runId: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/workflow/run/{runId}"
+}
+
+export type WorkflowRunGetErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type WorkflowRunGetError = WorkflowRunGetErrors[keyof WorkflowRunGetErrors]
+
+export type WorkflowRunGetResponses = {
+  /**
+   * Workflow run
+   */
+  200: WorkflowRun
+}
+
+export type WorkflowRunGetResponse = WorkflowRunGetResponses[keyof WorkflowRunGetResponses]
+
+export type WorkflowRunSessionsData = {
+  body?: never
+  path: {
+    runId: string
+  }
+  query?: {
+    directory?: string
+    /**
+     * Maximum number of sessions to return
+     */
+    limit?: number
+  }
+  url: "/workflow/run/{runId}/sessions"
+}
+
+export type WorkflowRunSessionsErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type WorkflowRunSessionsError = WorkflowRunSessionsErrors[keyof WorkflowRunSessionsErrors]
+
+export type WorkflowRunSessionsResponses = {
+  /**
+   * Workflow run sessions
+   */
+  200: Array<WorkflowSessionLink>
+}
+
+export type WorkflowRunSessionsResponse = WorkflowRunSessionsResponses[keyof WorkflowRunSessionsResponses]
+
+export type WorkflowSessionGetData = {
+  body?: never
+  path: {
+    sessionId: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/workflow/session/{sessionId}"
+}
+
+export type WorkflowSessionGetErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type WorkflowSessionGetError = WorkflowSessionGetErrors[keyof WorkflowSessionGetErrors]
+
+export type WorkflowSessionGetResponses = {
+  /**
+   * Workflow run
+   */
+  200: WorkflowRun
+}
+
+export type WorkflowSessionGetResponse = WorkflowSessionGetResponses[keyof WorkflowSessionGetResponses]
 
 export type TuiAppendPromptData = {
   body?: {
