@@ -48,6 +48,8 @@ type Inline = {
   description?: string
 }
 
+let workingDirectory = process.cwd()
+
 function inline(info: Inline) {
   const suffix = info.description ? UI.Style.TEXT_DIM + ` ${info.description}` + UI.Style.TEXT_NORMAL : ""
   UI.println(UI.Style.TEXT_NORMAL + info.icon, UI.Style.TEXT_NORMAL + info.title + suffix)
@@ -208,7 +210,7 @@ function todo(info: ToolProps<typeof TodoWriteTool>) {
 
 function normalizePath(input?: string) {
   if (!input) return ""
-  if (path.isAbsolute(input)) return path.relative(process.cwd(), input) || "."
+  if (path.isAbsolute(input)) return path.relative(workingDirectory, input) || "."
   return input
 }
 
@@ -274,6 +276,11 @@ export const RunCommand = cmd({
         type: "string",
         describe: "attach to a running opencode server (e.g., http://localhost:4096)",
       })
+      .option("directory", {
+        alias: ["cwd"],
+        type: "string",
+        describe: "directory to run in",
+      })
       .option("port", {
         type: "number",
         describe: "port for the local server (defaults to random port if no value provided)",
@@ -314,6 +321,9 @@ export const RunCommand = cmd({
       })
   },
   handler: async (args) => {
+    const directory = path.resolve(process.cwd(), args.directory ?? process.cwd())
+    workingDirectory = directory
+
     let message = [...args.message, ...(args["--"] || [])]
       .map((arg) => (arg.includes(" ") ? `"${arg.replace(/"/g, '\\"')}"` : arg))
       .join(" ")
@@ -323,7 +333,7 @@ export const RunCommand = cmd({
       const list = Array.isArray(args.file) ? args.file : [args.file]
 
       for (const filePath of list) {
-        const resolvedPath = path.resolve(process.cwd(), filePath)
+        const resolvedPath = path.resolve(directory, filePath)
         const file = Bun.file(resolvedPath)
         const stats = await file.stat().catch(() => {})
         if (!stats) {
@@ -688,7 +698,10 @@ export const RunCommand = cmd({
         const url = new URL("/taskmode/enable", baseUrl)
         const enableRes = await rawFetch(url, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            "x-opencode-directory": directory,
+          },
           body: JSON.stringify({
             startOrchestrator: true,
             parentSessionId: sessionID,
@@ -710,7 +723,10 @@ export const RunCommand = cmd({
         const url = new URL(`/workflow/${workflowId}/start`, baseUrl)
         const startRes = await rawFetch(url, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            "x-opencode-directory": directory,
+          },
           body: JSON.stringify({
             parentSessionId: sessionID,
             userPrompt: message,
@@ -755,16 +771,16 @@ export const RunCommand = cmd({
     }
 
     if (args.attach) {
-      const sdk = createOpencodeClient({ baseUrl: args.attach })
+      const sdk = createOpencodeClient({ baseUrl: args.attach, directory })
       return await execute(sdk, fetch)
     }
 
-    await bootstrap(process.cwd(), async () => {
+    await bootstrap(directory, async () => {
       const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init)
         return Server.App().fetch(request)
       }) as typeof globalThis.fetch
-      const sdk = createOpencodeClient({ baseUrl: "http://opencode.internal", fetch: fetchFn })
+      const sdk = createOpencodeClient({ baseUrl: "http://opencode.internal", fetch: fetchFn, directory })
       await execute(sdk, fetchFn)
     })
   },

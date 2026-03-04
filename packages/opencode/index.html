@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Spinning Cube</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 20% 20%, #253b5a 0%, transparent 45%),
+          radial-gradient(circle at 80% 15%, #3b225d 0%, transparent 40%),
+          linear-gradient(160deg, #05070c 0%, #0d1522 45%, #05070c 100%);
+        font-family: "Space Grotesk", "Avenir Next", sans-serif;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+
+      const scene = new THREE.Scene()
+
+      const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100)
+      camera.position.set(0, 0.4, 3.2)
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+      renderer.setSize(1, 1)
+      renderer.setClearColor(0x000000, 0)
+      renderer.outputColorSpace = THREE.SRGBColorSpace
+      document.body.appendChild(renderer.domElement)
+
+      scene.add(new THREE.AmbientLight(0xffffff, 0.4))
+      const key = new THREE.PointLight(0x8fd6ff, 2.2, 20)
+      key.position.set(3, 2, 4)
+      scene.add(key)
+
+      const fill = new THREE.PointLight(0xff7bcf, 1.2, 20)
+      fill.position.set(-3, -1, -2)
+      scene.add(fill)
+
+      const geometry = new THREE.BoxGeometry(1.2, 1.2, 1.2)
+      const material = new THREE.MeshStandardMaterial({
+        color: 0x5ad7ff,
+        emissive: 0x122538,
+        metalness: 0.4,
+        roughness: 0.2,
+      })
+      const cube = new THREE.Mesh(geometry, material)
+      scene.add(cube)
+
+      function resize() {
+        const width = window.innerWidth
+        const height = window.innerHeight
+        camera.aspect = width / height
+        camera.updateProjectionMatrix()
+        renderer.setSize(width, height)
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+      }
+
+      resize()
+      window.addEventListener("resize", resize)
+
+      function animate(time) {
+        const t = time * 0.001
+        cube.rotation.x = t * 0.6
+        cube.rotation.y = t * 0.9
+        cube.rotation.z = t * 0.3
+        camera.position.x = Math.sin(t * 0.6) * 0.3
+        camera.position.y = 0.35 + Math.sin(t * 0.8) * 0.15
+        camera.lookAt(0, 0, 0)
+        renderer.render(scene, camera)
+        requestAnimationFrame(animate)
+      }
+
+      requestAnimationFrame(animate)
+    </script>
+  </body>
+</html>

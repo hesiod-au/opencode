@@ -1,13 +1,21 @@
 import type { Argv } from "yargs"
+import path from "path"
 import { cmd } from "./cmd"
 import { bootstrap } from "../bootstrap"
 import { Server } from "../../server/server"
 import { UI } from "../ui"
 
-async function api<T>(fetchFn: typeof fetch, method: string, path: string, body?: any): Promise<T> {
-  const res = await fetchFn(`http://opencode.internal${path}`, {
+function directory(input?: string) {
+  return path.resolve(process.cwd(), input ?? process.cwd())
+}
+
+async function api<T>(fetchFn: typeof fetch, method: string, route: string, directory?: string, body?: any): Promise<T> {
+  const res = await fetchFn(`http://opencode.internal${route}`, {
     method,
-    headers: body ? { "content-type": "application/json" } : undefined,
+    headers: {
+      ...(directory ? { "x-opencode-directory": directory } : {}),
+      ...(body ? { "content-type": "application/json" } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   })
 
@@ -40,6 +48,11 @@ export const TaskModeEnableCommand = cmd({
         type: "boolean",
         describe: "enable TDD mode for task mode",
       })
+      .option("directory", {
+        alias: ["cwd", "dir"],
+        type: "string",
+        describe: "directory to run in",
+      })
       .option("folder", {
         type: "string",
         describe: "task folder name under .opencode/tasks (selects its task_list.md)",
@@ -49,13 +62,14 @@ export const TaskModeEnableCommand = cmd({
         describe: "parent session id to log orchestrator actions to",
       }),
   handler: async (args) => {
-    await bootstrap(process.cwd(), async () => {
+    const cwd = directory(args.directory)
+    await bootstrap(cwd, async () => {
       const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init)
         return Server.App().fetch(request)
       }) as typeof globalThis.fetch
 
-      const data = await api<{ success: boolean; orchestratorStarted: boolean }>(fetchFn, "POST", "/taskmode/enable", {
+      const data = await api<{ success: boolean; orchestratorStarted: boolean }>(fetchFn, "POST", "/taskmode/enable", cwd, {
         startOrchestrator: !args.noOrchestrator,
         parentSessionId: args.parentSession,
         folderName: args.folder,
@@ -74,15 +88,21 @@ export const TaskModeEnableCommand = cmd({
 export const TaskModeDisableCommand = cmd({
   command: "disable",
   describe: "disable task mode and stop the orchestrator",
-  builder: (yargs: Argv) => yargs,
-  handler: async () => {
-    await bootstrap(process.cwd(), async () => {
+  builder: (yargs: Argv) =>
+    yargs.option("directory", {
+      alias: ["cwd", "dir"],
+      type: "string",
+      describe: "directory to run in",
+    }),
+  handler: async (args) => {
+    const cwd = directory(args.directory)
+    await bootstrap(cwd, async () => {
       const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init)
         return Server.App().fetch(request)
       }) as typeof globalThis.fetch
 
-      await api(fetchFn, "POST", "/taskmode/disable")
+      await api(fetchFn, "POST", "/taskmode/disable", cwd)
       UI.println(UI.Style.TEXT_SUCCESS_BOLD + "✓  Task mode disabled")
     })
   },
@@ -91,9 +111,15 @@ export const TaskModeDisableCommand = cmd({
 export const TaskModeStatusCommand = cmd({
   command: "status",
   describe: "show task mode status",
-  builder: (yargs: Argv) => yargs,
-  handler: async () => {
-    await bootstrap(process.cwd(), async () => {
+  builder: (yargs: Argv) =>
+    yargs.option("directory", {
+      alias: ["cwd", "dir"],
+      type: "string",
+      describe: "directory to run in",
+    }),
+  handler: async (args) => {
+    const cwd = directory(args.directory)
+    await bootstrap(cwd, async () => {
       const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init)
         return Server.App().fetch(request)
@@ -114,7 +140,7 @@ export const TaskModeStatusCommand = cmd({
           error: number
           paused: number
         }
-      }>(fetchFn, "GET", "/taskmode/status")
+      }>(fetchFn, "GET", "/taskmode/status", cwd)
 
       const counts = status.counts
         ? `tasks: ${status.counts.total} (pending ${status.counts.pending}, in-progress ${status.counts.inProgress}, done ${status.counts.completed}, error ${status.counts.error}, paused ${status.counts.paused})`
