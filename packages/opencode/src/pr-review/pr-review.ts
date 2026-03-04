@@ -367,6 +367,7 @@ ${payload}
       await WorkflowStore.linkSession({
         runId: state.runId,
         sessionId: fixSession.id,
+        workflowId: "pr-review",
         role: "fix",
         parentSessionId: state.orchestratorSessionId,
       })
@@ -733,6 +734,7 @@ If the issue is local, continue with a minimal code fix in this same message.
                 await WorkflowStore.linkSession({
                   runId: state.runId,
                   sessionId: testFixSession.id,
+                  workflowId: "pr-review",
                   role: "child",
                   parentSessionId: state.orchestratorSessionId,
                 })

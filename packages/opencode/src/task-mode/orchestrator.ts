@@ -165,6 +165,7 @@ export namespace Orchestrator {
         await WorkflowStore.linkSession({
           runId: state.runId,
           sessionId: reportSession.id,
+          workflowId: "task",
           role: "child",
           parentSessionId,
         })
@@ -553,6 +554,7 @@ ${
       await WorkflowStore.linkSession({
         runId: state.runId,
         sessionId: fixSession.id,
+        workflowId: "task",
         role: "child",
         parentSessionId,
       })

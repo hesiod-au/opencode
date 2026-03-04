@@ -345,6 +345,7 @@ ${guardrails}
       await WorkflowStore.linkSession({
         runId,
         sessionId: session.id,
+        workflowId: "task",
         role: "task",
         parentSessionId,
       })

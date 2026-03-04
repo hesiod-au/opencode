@@ -93,6 +93,7 @@ export namespace TestWriterAgent {
       await WorkflowStore.linkSession({
         runId,
         sessionId: session.id,
+        workflowId: "task",
         role: "child",
         parentSessionId,
       })

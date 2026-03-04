@@ -229,6 +229,7 @@ ${contractDocs.slice(0, 10000)}${contractDocs.length > 10000 ? "\n... (truncated
       await WorkflowStore.linkSession({
         runId,
         sessionId: session.id,
+        workflowId: "test-fix",
         role: "child",
         parentSessionId,
       })

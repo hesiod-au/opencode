@@ -36,6 +36,7 @@ export namespace TestFixReport {
         await WorkflowStore.linkSession({
           runId,
           sessionId: reportSession.id,
+          workflowId: "test-fix",
           role: "report",
           parentSessionId,
         })

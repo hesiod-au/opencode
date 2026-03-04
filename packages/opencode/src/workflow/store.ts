@@ -8,6 +8,13 @@ export namespace WorkflowStore {
   export const WorkflowRunSource = z.enum(["tool", "cli", "api", "gui", "unknown"])
   export type WorkflowRunSource = z.output<typeof WorkflowRunSource>
 
+  export const WorkflowStatsSnapshot = z.object({
+    inputTokens: z.number(),
+    outputTokens: z.number(),
+    cost: z.number(),
+    modifiedFiles: z.array(z.string()),
+  })
+
   export const WorkflowStatusSnapshot = z.object({
     running: z.boolean().optional(),
     phase: z.string().optional(),
@@ -23,13 +30,8 @@ export namespace WorkflowStore {
         label: z.string().optional(),
       })
       .optional(),
-  })
-
-  export const WorkflowStatsSnapshot = z.object({
-    inputTokens: z.number(),
-    outputTokens: z.number(),
-    cost: z.number(),
-    modifiedFiles: z.array(z.string()),
+    stats: WorkflowStatsSnapshot.optional(),
+    extra: z.record(z.string(), z.unknown()).optional(),
   })
 
   export const WorkflowRun = z.object({

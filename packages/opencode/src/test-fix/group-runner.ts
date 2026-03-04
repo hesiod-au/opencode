@@ -143,6 +143,7 @@ Return only the JSON array, no other text.`
       await WorkflowStore.linkSession({
         runId,
         sessionId: groupSession.id,
+        workflowId: "test-fix",
         role: "group",
         parentSessionId,
       })

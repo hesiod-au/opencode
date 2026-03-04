@@ -135,6 +135,7 @@ export namespace TestConfigWorkflow {
       await WorkflowStore.linkSession({
         runId,
         sessionId: orchestratorSession.id,
+        workflowId: "test-config",
         role: "child",
         parentSessionId: ctx.parentSessionId,
       })
@@ -302,6 +303,7 @@ Notes:
       await WorkflowStore.linkSession({
         runId,
         sessionId: validateSession.id,
+        workflowId: "test-config",
         role: "child",
         parentSessionId: ctx.parentSessionId,
       })
