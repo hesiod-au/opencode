@@ -74,6 +74,32 @@ export namespace Storage {
     return createAdapter(client, `https://s3.${region}.amazonaws.com`, bucket)
   }
 
+  function memory(): Adapter {
+    const items = new Map<string, string>()
+    return {
+      async read(path: string) {
+        return items.get(path)
+      },
+
+      async write(path: string, value: string) {
+        items.set(path, value)
+      },
+
+      async remove(path: string) {
+        items.delete(path)
+      },
+
+      async list(options?: { prefix?: string; limit?: number; after?: string; before?: string }) {
+        const prefix = options?.prefix || ""
+        const after = options?.after ? prefix + options.after + ".json" : undefined
+        const before = options?.before ? prefix + options.before + ".json" : undefined
+        const keys = [...items.keys()].filter((key) => key.startsWith(prefix)).sort()
+        const filtered = keys.filter((key) => (!after || key > after) && (!before || key < before))
+        return options?.limit ? filtered.slice(0, options.limit) : filtered
+      },
+    }
+  }
+
   function r2() {
     const accountId = process.env.OPENCODE_STORAGE_ACCOUNT_ID!
     const client = new AwsClient({
@@ -87,6 +113,8 @@ export namespace Storage {
     const type = process.env.OPENCODE_STORAGE_ADAPTER
     if (type === "r2") return r2()
     if (type === "s3") return s3()
+    if (type === "memory") return memory()
+    if (process.env.BUN_TEST || process.env.NODE_ENV === "test") return memory()
     throw new Error("No storage adapter configured")
   })
 

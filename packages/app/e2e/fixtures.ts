@@ -23,52 +23,71 @@ type WorkerFixtures = {
   slug: string
 }
 
-export const test = base.extend<TestFixtures, WorkerFixtures>({
-  directory: [
-    async ({}, use) => {
-      const directory = await getWorktree()
-      await use(directory)
-    },
-    { scope: "worker" },
-  ],
-  slug: [
-    async ({ directory }, use) => {
-      await use(dirSlug(directory))
-    },
-    { scope: "worker" },
-  ],
-  sdk: async ({ directory }, use) => {
-    await use(createSdk(directory))
-  },
-  gotoSession: async ({ page, directory }, use) => {
-    await seedStorage(page, { directory })
+const bun = typeof Bun !== "undefined"
 
-    const gotoSession = async (sessionID?: string) => {
-      await page.goto(sessionPath(directory, sessionID))
-      await expect(page.locator(promptSelector)).toBeVisible()
-    }
-    await use(gotoSession)
-  },
-  withProject: async ({ page }, use) => {
-    await use(async (callback, options) => {
-      const directory = await createTestProject()
-      const slug = dirSlug(directory)
-      await seedStorage(page, { directory, extra: options?.extra })
+const noop = () => {}
+const noopDescribe = Object.assign(noop, { configure: noop })
 
-      const gotoSession = async (sessionID?: string) => {
-        await page.goto(sessionPath(directory, sessionID))
-        await expect(page.locator(promptSelector)).toBeVisible()
-      }
-
-      try {
-        await gotoSession()
-        return await callback({ directory, slug, gotoSession })
-      } finally {
-        await cleanupTestProject(directory)
-      }
+export const test = bun
+  ? Object.assign(noop, {
+      afterAll: noop,
+      afterEach: noop,
+      beforeAll: noop,
+      beforeEach: noop,
+      describe: noopDescribe,
+      fail: noop,
+      fixme: noop,
+      only: noop,
+      setTimeout: noop,
+      skip: noop,
+      use: noop,
     })
-  },
-})
+  : base.extend<TestFixtures, WorkerFixtures>({
+      directory: [
+        async ({}, use) => {
+          const directory = await getWorktree()
+          await use(directory)
+        },
+        { scope: "worker" },
+      ],
+      slug: [
+        async ({ directory }, use) => {
+          await use(dirSlug(directory))
+        },
+        { scope: "worker" },
+      ],
+      sdk: async ({ directory }, use) => {
+        await use(createSdk(directory))
+      },
+      gotoSession: async ({ page, directory }, use) => {
+        await seedStorage(page, { directory })
+
+        const gotoSession = async (sessionID?: string) => {
+          await page.goto(sessionPath(directory, sessionID))
+          await expect(page.locator(promptSelector)).toBeVisible()
+        }
+        await use(gotoSession)
+      },
+      withProject: async ({ page }, use) => {
+        await use(async (callback, options) => {
+          const directory = await createTestProject()
+          const slug = dirSlug(directory)
+          await seedStorage(page, { directory, extra: options?.extra })
+
+          const gotoSession = async (sessionID?: string) => {
+            await page.goto(sessionPath(directory, sessionID))
+            await expect(page.locator(promptSelector)).toBeVisible()
+          }
+
+          try {
+            await gotoSession()
+            return await callback({ directory, slug, gotoSession })
+          } finally {
+            await cleanupTestProject(directory)
+          }
+        })
+      },
+    })
 
 async function seedStorage(page: Page, input: { directory: string; extra?: string[] }) {
   await seedProjects(page, input)

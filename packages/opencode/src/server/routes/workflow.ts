@@ -318,7 +318,11 @@ export const WorkflowRoutes = lazy(() =>
         z.object({
           directory: z.string().optional().meta({ description: "Filter runs by project directory" }),
           workflowId: z.string().optional().meta({ description: "Filter runs by workflow ID" }),
-          running: z.coerce.boolean().optional().meta({ description: "Filter runs by running state" }),
+          running: z
+            .enum(["true", "false"])
+            .transform((value) => value === "true")
+            .optional()
+            .meta({ description: "Filter runs by running state" }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of runs to return" }),
         }),
       ),

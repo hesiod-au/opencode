@@ -2,5 +2,4 @@
 exact = true
 
 [test]
-root = "./do-not-run-tests-from-root"
-
+preload = ["./packages/app/happydom.ts"]
