@@ -104,6 +104,21 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
 
     const sdk = useSDK()
 
+    const normalizeAgents = (input: unknown): Agent[] => {
+      if (Array.isArray(input)) return input as Agent[]
+      if (input && typeof input === "object") {
+        const nested = (input as { data?: unknown }).data
+        if (Array.isArray(nested)) return nested as Agent[]
+
+        const mapped = Object.values(input).filter(
+          (value): value is Agent =>
+            !!value && typeof value === "object" && typeof (value as { name?: unknown }).name === "string",
+        )
+        if (mapped.length > 0) return mapped
+      }
+      return []
+    }
+
     sdk.event.listen((e) => {
       const event = e.details
       switch (event.type) {
@@ -352,7 +367,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         .then(() => {
           const providersResponse = providersPromise.then((x) => x.data!)
           const providerListResponse = providerListPromise.then((x) => x.data!)
-          const agentsResponse = agentsPromise.then((x) => x.data ?? [])
+          const agentsResponse = agentsPromise.then((x) => normalizeAgents(x.data))
           const configResponse = configPromise.then((x) => x.data!)
           const sessionListResponse = args.continue ? sessionListPromise : undefined
 

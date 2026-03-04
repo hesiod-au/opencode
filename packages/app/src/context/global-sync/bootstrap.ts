@@ -104,6 +104,20 @@ function groupBySession<T extends { id: string; sessionID: string }>(input: T[])
   }, {})
 }
 
+function normalizeAgents(input: unknown): State["agent"] {
+  if (Array.isArray(input)) return input as State["agent"]
+  if (input && typeof input === "object") {
+    const nested = (input as { data?: unknown }).data
+    if (Array.isArray(nested)) return nested as State["agent"]
+
+    const mapped = Object.values(input).filter((value): value is State["agent"][number] => {
+      return !!value && typeof value === "object" && typeof (value as { name?: unknown }).name === "string"
+    })
+    if (mapped.length > 0) return mapped
+  }
+  return []
+}
+
 export async function bootstrapDirectory(input: {
   directory: string
   sdk: ReturnType<typeof createOpencodeClient>
@@ -120,7 +134,7 @@ export async function bootstrapDirectory(input: {
       input.sdk.provider.list().then((x) => {
         input.setStore("provider", normalizeProviderList(x.data!))
       }),
-    agent: () => input.sdk.app.agents().then((x) => input.setStore("agent", x.data ?? [])),
+    agent: () => input.sdk.app.agents().then((x) => input.setStore("agent", normalizeAgents(x.data))),
     config: () => input.sdk.config.get().then((x) => input.setStore("config", x.data!)),
   }
 
